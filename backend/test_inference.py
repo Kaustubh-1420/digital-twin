@@ -91,12 +91,19 @@ def normalize_to_tpose(betas, smplx_model):
 
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--image', default=TEST_IMAGE)
+    parser.add_argument('--height', type=float, default=175.0,
+                        help='User height in cm for scale calibration')
+    args = parser.parse_args()
+
     print('Loading HMR2...')
     model, model_cfg = load_hmr2(DEFAULT_CHECKPOINT)
     model = model.eval()
 
     print('Running inference...')
-    img = cv2.imread(TEST_IMAGE)
+    img = cv2.imread(args.image)
     hmr2_out = hmr2_infer(model, model_cfg, img)
 
     print('Converting SMPL → SMPL-X...')
@@ -108,12 +115,16 @@ if __name__ == '__main__':
     print('Normalizing to T-pose...')
     vertices, faces, joints = normalize_to_tpose(params['betas'], smplx_model)
 
+    print(f'Scaling to {args.height:.0f} cm...')
+    import sys; sys.path.insert(0, 'backend')
+    from scale import scale_to_height
+    vertices, joints = scale_to_height(vertices, args.height, joints)
+
     height_m = vertices[:, 1].max() - vertices[:, 1].min()
     print(f'Vertices: {vertices.shape}, Faces: {faces.shape}, Joints: {joints.shape}')
-    print(f'T-pose height: {height_m:.3f} m ({height_m * 100:.1f} cm)')
+    print(f'Scaled height: {height_m:.3f} m ({height_m * 100:.1f} cm)')
 
     print('\nExtracting measurements...')
-    import sys; sys.path.insert(0, 'backend')
     from measurements import extract_measurements
     results = extract_measurements(vertices, faces, joints)
     for k, v in results.items():

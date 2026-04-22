@@ -35,11 +35,7 @@ def _plane_slice_perimeter(vertices: np.ndarray, faces: np.ndarray, y: float) ->
     if len(path2d.entities) == 0:
         return 0.0
 
-    def entity_perimeter(e):
-        pts = path2d.vertices[e.points]
-        return float(np.linalg.norm(np.diff(pts, axis=0), axis=1).sum())
-
-    return max(entity_perimeter(e) for e in path2d.entities)
+    return max(e.length(path2d.vertices) for e in path2d.entities)
 
 
 def _torso_ellipse_circumference(vertices: np.ndarray, y: float,
@@ -50,8 +46,10 @@ def _torso_ellipse_circumference(vertices: np.ndarray, y: float,
     Uses Ramanujan's ellipse perimeter approximation.
     Accurate to ~1% for typical chest/torso cross-sections.
     """
-    mask = (np.abs(vertices[:, 1] - y) < band) & (np.abs(vertices[:, 0]) < x_limit)
-    verts = vertices[mask]
+    verts_centered = vertices.copy()
+    verts_centered[:, 0] -= vertices[:, 0].mean()
+    mask = (np.abs(verts_centered[:, 1] - y) < band) & (np.abs(verts_centered[:, 0]) < x_limit)
+    verts = verts_centered[mask]
     if len(verts) < 6:
         return 0.0
     a = (verts[:, 0].max() - verts[:, 0].min()) / 2  # half-width (X)
