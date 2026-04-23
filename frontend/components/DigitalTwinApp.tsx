@@ -5,6 +5,7 @@ import UploadForm from "./UploadForm";
 import AvatarViewer from "./AvatarViewer";
 import MeasurementsPanel from "./MeasurementsPanel";
 import { runPipeline } from "@/lib/api";
+import { usePoseLandmarker } from "@/hooks/usePoseLandmarker";
 
 type Status = "idle" | "loading" | "done" | "error";
 
@@ -14,6 +15,9 @@ export default function DigitalTwinApp() {
   const [error, setError] = useState<string | null>(null);
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [measurements, setMeasurements] = useState<string | null>(null);
+
+  const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, start: startWebcam, stop: stopWebcam } =
+    usePoseLandmarker();
 
   async function handleSubmit(file: File, heightCm: number) {
     setStatus("loading");
@@ -33,10 +37,11 @@ export default function DigitalTwinApp() {
   }
 
   const loading = status === "loading";
+  const hasAvatar = !!glbUrl;
 
   return (
     <div className="flex h-full">
-      {/* Left panel — upload form */}
+      {/* Left panel */}
       <aside className="w-80 shrink-0 flex flex-col gap-6 p-6 border-r border-zinc-800 overflow-y-auto">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">digital-twin</h1>
@@ -44,22 +49,57 @@ export default function DigitalTwinApp() {
             Photo → personalized SMPL-X avatar → real-time mirroring
           </p>
         </div>
+
         <UploadForm
           onSubmit={handleSubmit}
           loading={loading}
           status={statusText}
           error={error}
         />
+
+        {/* Webcam toggle — only shown once an avatar exists */}
+        {hasAvatar && (
+          <div className="flex flex-col gap-2 border-t border-zinc-800 pt-5">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-400">Real-time mirroring</span>
+              {webcamActive && (
+                <span className="flex items-center gap-1.5 text-xs text-green-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  Tracking
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={webcamActive ? stopWebcam : startWebcam}
+              disabled={!mpReady}
+              className="w-full py-3 rounded-lg font-medium text-sm transition-colors
+                bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-white"
+            >
+              {!mpReady
+                ? "Loading pose model…"
+                : webcamActive
+                ? "⏹ Stop webcam"
+                : "▶ Start webcam mirror"}
+            </button>
+
+            {mpError && (
+              <p className="text-xs text-red-400">{mpError}</p>
+            )}
+          </div>
+        )}
       </aside>
 
-      {/* Right panel — viewer + measurements */}
+      {/* Right panel */}
       <main className="flex flex-1 min-w-0 min-h-0 p-6 gap-6">
-        {/* 3D viewer fills available height */}
         <div className="flex flex-col flex-1 min-w-0 min-h-0">
-          <AvatarViewer glbUrl={glbUrl} loading={loading} />
+          <AvatarViewer
+            glbUrl={glbUrl}
+            loading={loading}
+            landmarksRef={landmarksRef}
+          />
         </div>
 
-        {/* Measurements sidebar */}
         <aside className="w-56 shrink-0 flex flex-col gap-4 overflow-y-auto">
           <MeasurementsPanel text={measurements} />
         </aside>

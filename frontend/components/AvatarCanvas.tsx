@@ -1,13 +1,16 @@
 "use client";
 
 import { Suspense, useMemo } from "react";
+import type { RefObject } from "react";
 import { Canvas } from "@react-three/fiber";
 import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
+import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
 
 type Props = {
   glbUrl: string | null;
   loading: boolean;
+  landmarksRef: RefObject<PoseLandmarks | null>;
 };
 
 const BODY_MATERIAL = new THREE.MeshStandardMaterial({
@@ -19,7 +22,6 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
 function Avatar({ url }: { url: string }) {
   const { scene } = useGLTF(url);
 
-  // Apply material to the SkinnedMesh (GLB ships without one)
   useMemo(() => {
     scene.traverse((obj) => {
       if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
@@ -67,7 +69,10 @@ function PlaceholderFigure() {
   );
 }
 
-export default function AvatarCanvas({ glbUrl, loading }: Props) {
+export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
+  // landmarksRef is read each frame inside useFrame (task 16) — no prop drilling into Canvas needed
+  void landmarksRef;
+
   return (
     <div className="relative w-full h-full">
       <Canvas
