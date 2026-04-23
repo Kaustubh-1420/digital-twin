@@ -1,0 +1,31 @@
+# HF Spaces dependencies for smplx-measure
+# PyMAF-X is cloned at startup via setup.sh
+
+# Core ML
+torch
+torchvision
+einops
+timm
+yacs
+
+# Body model
+smplx
+
+# Keypoint detection
+mediapipe
+certifi
+
+# Image & mesh
+opencv-python-headless
+trimesh
+scipy
+scikit-learn
+numpy
+
+# HMR2 (fallback backend, installs PyMAF-X deps too)
+# installed via setup.sh
+
+# Misc
+boto3
+gradio
+spaces

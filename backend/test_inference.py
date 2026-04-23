@@ -96,27 +96,40 @@ if __name__ == '__main__':
     parser.add_argument('--image', default=TEST_IMAGE)
     parser.add_argument('--height', type=float, default=175.0,
                         help='User height in cm for scale calibration')
+    parser.add_argument('--backend', choices=['hmr2', 'pymafx'], default='pymafx',
+                        help='Body fitting backend (pymafx = native SMPL-X, hmr2 = approx betas)')
     args = parser.parse_args()
 
-    print('Loading HMR2...')
-    model, model_cfg = load_hmr2(DEFAULT_CHECKPOINT)
-    model = model.eval()
-
-    print('Running inference...')
     img = cv2.imread(args.image)
-    hmr2_out = hmr2_infer(model, model_cfg, img)
+    if img is None:
+        raise FileNotFoundError(f'Cannot read image: {args.image}')
 
-    print('Converting SMPL → SMPL-X...')
-    params = smpl_to_smplx_params(hmr2_out)
+    smplx_model = smplx.create(
+        model_path=SMPLX_MODEL_PATH, model_type='smplx',
+        gender='neutral', use_pca=False, num_betas=10, batch_size=1,
+    )
 
-    print('Building SMPL-X mesh (posed)...')
-    _, _, smplx_model = build_smplx_mesh(params, SMPLX_MODEL_PATH)
+    if args.backend == 'pymafx':
+        print('Loading PyMAF-X backend...')
+        sys.path.insert(0, 'backend')
+        from pymafx_backend import infer as pymafx_infer
+        result = pymafx_infer(img)
+        betas_np = result['betas']
+        betas = torch.from_numpy(betas_np).unsqueeze(0).float()
+    else:
+        print('Loading HMR2...')
+        model_hmr2, model_cfg = load_hmr2(DEFAULT_CHECKPOINT)
+        model_hmr2 = model_hmr2.eval()
+        print('Running HMR2 inference...')
+        hmr2_out = hmr2_infer(model_hmr2, model_cfg, img)
+        print('Converting SMPL → SMPL-X...')
+        params = smpl_to_smplx_params(hmr2_out)
+        betas = params['betas']
 
     print('Normalizing to T-pose...')
-    vertices, faces, joints = normalize_to_tpose(params['betas'], smplx_model)
+    vertices, faces, joints = normalize_to_tpose(betas, smplx_model)
 
     print(f'Scaling to {args.height:.0f} cm...')
-    import sys; sys.path.insert(0, 'backend')
     from scale import scale_to_height
     vertices, joints = scale_to_height(vertices, args.height, joints)
 

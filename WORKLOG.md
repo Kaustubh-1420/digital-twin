@@ -26,3 +26,23 @@
 - PyMAF-X setup started: cloned repo, identified pretrained model download needed from pan.bnu.edu.cn (web UI, manual download required)
 - pytorch3d (renderer only) and openpifpaf (detection only) can be mocked/skipped for our inference wrapper
 - Next: user downloads PyMAF-X checkpoint + partial_mesh files → install deps → write inference wrapper
+
+## 2026-04-23 (session 4)
+- Task 9 complete: PyMAF-X fully set up
+  - Moved downloaded checkpoint + partial_mesh files into /tmp/PyMAF-X/data/
+  - Fixed numpy 2.x incompatibility (twodim_base removed) in maf_extractor.py
+  - Installed boto3, mediapipe, scikit-learn into venv
+  - Wrote backend/pymafx_backend.py: MediaPipe Tasks API for keypoints → PyMAF-X forward → native SMPL-X betas
+  - Updated test_inference.py with --backend flag (pymafx default, hmr2 fallback)
+- Task 10 complete: validated on 10 diverse photos
+  - 10/10 PASS, no crashes, all measurements in human range
+  - 2/10 images: MediaPipe fallback bbox used (still ran fine)
+  - Wrote backend/validate_10.py for batch testing
+- Task 11 complete: Gradio app built and tested locally
+  - app.py: image + height → PyMAF-X → T-pose → measurements + GLB avatar
+  - gr.Model3D for avatar preview in browser
+  - @spaces.GPU(duration=120) for ZeroGPU
+  - setup.sh: clones PyMAF-X, patches numpy, downloads assets from private HF dataset via HF_TOKEN
+  - requirements.txt for HF Spaces
+  - UI works end-to-end, user reviewed it locally
+- Next: Task 12 — create HF dataset with checkpoint + models, deploy to HF Spaces ZeroGPU
