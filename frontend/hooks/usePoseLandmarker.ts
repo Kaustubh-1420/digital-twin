@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { LandmarksFilter } from "@/lib/oneEuroFilter";
 
 // Pinned to the installed package version
 const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
@@ -25,8 +26,9 @@ export function usePoseLandmarker() {
   const landmarksRef = useRef<PoseLandmarks | null>(null);
 
   const landmarkerRef = useRef<import("@mediapipe/tasks-vision").PoseLandmarker | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const rafRef = useRef<number>(0);
+  const videoRef      = useRef<HTMLVideoElement | null>(null);
+  const rafRef        = useRef<number>(0);
+  const filterRef     = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
 
   // Load the model once on mount
   useEffect(() => {
@@ -85,7 +87,8 @@ export function usePoseLandmarker() {
           // detectForVideo requires strictly increasing timestamps
           lastTs = ts;
           const result = lm.detectForVideo(video, ts);
-          landmarksRef.current = result.worldLandmarks?.[0] ?? null;
+          const raw = result.worldLandmarks?.[0];
+          landmarksRef.current = raw ? filterRef.current.filter(raw) : null;
         }
         rafRef.current = requestAnimationFrame(detect);
       };
@@ -104,6 +107,7 @@ export function usePoseLandmarker() {
     }
     videoRef.current = null;
     landmarksRef.current = null;
+    filterRef.current = new LandmarksFilter(1.0, 0.3); // reset filter state
     setActive(false);
   }, []);
 

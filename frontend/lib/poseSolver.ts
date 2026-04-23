@@ -155,8 +155,8 @@ export function driveSkeleton(skeleton: THREE.Skeleton, lms: PoseLandmarks): voi
     _q1.copy(_parentWorldQ).invert();
     _localQ.multiplyQuaternions(_q1, _worldQ);
 
-    // 5. Apply and update world matrix for downstream bones
-    bone.quaternion.copy(_localQ);
+    // 5. SLERP toward target (smooths residual jitter after landmark filtering)
+    bone.quaternion.slerp(_localQ, 0.35);
     bone.updateWorldMatrix(false, false);
   }
 }
