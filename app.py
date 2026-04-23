@@ -5,7 +5,6 @@ Deployed on HF Spaces ZeroGPU.
 """
 import os
 import sys
-import tempfile
 import subprocess
 
 # Must be set before any torch/CUDA import on ZeroGPU
@@ -28,7 +27,6 @@ import numpy as np
 import torch
 import cv2
 import smplx
-import trimesh
 import gradio as gr
 
 # ── path setup ────────────────────────────────────────────────────────────────
@@ -37,6 +35,7 @@ sys.path.insert(0, os.path.join(ROOT, 'backend'))
 from pymafx_backend import infer as pymafx_infer, load_model as pymafx_load
 from scale import scale_to_height
 from measurements import extract_measurements
+from export_glb import export_skinned_glb
 
 SMPLX_MODEL_PATH = (
     '/tmp/smplx-models'
@@ -69,16 +68,6 @@ def _build_smplx():
         num_betas=10,
         batch_size=1,
     )
-
-
-def _mesh_to_glb(vertices: np.ndarray, faces: np.ndarray) -> str:
-    """Export mesh to a temp GLB file. Returns the file path."""
-    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
-    mesh.fix_normals()
-    tmp = tempfile.NamedTemporaryFile(suffix='.glb', delete=False)
-    tmp.close()
-    mesh.export(tmp.name, file_type='glb')
-    return tmp.name
 
 
 def _fmt_measurements(m: dict) -> str:
@@ -142,8 +131,9 @@ def run_pipeline(image_path: str, height_cm: float):
     measurements = extract_measurements(vertices, faces, joints)
     meas_text = _fmt_measurements(measurements)
 
-    # 6. export GLB
-    glb_path = _mesh_to_glb(vertices, faces)
+    # 6. export skinned GLB with VRM bone names
+    lbs_weights = smplx_model.lbs_weights.detach().numpy()
+    glb_path = export_skinned_glb(vertices, faces, joints, lbs_weights)
 
     return glb_path, meas_text, '✓ Done'
 
