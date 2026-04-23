@@ -45,4 +45,36 @@
   - setup.sh: clones PyMAF-X, patches numpy, downloads assets from private HF dataset via HF_TOKEN
   - requirements.txt for HF Spaces
   - UI works end-to-end, user reviewed it locally
-- Next: Task 12 — create HF dataset with checkpoint + models, deploy to HF Spaces ZeroGPU
+
+## 2026-04-23 (session 5) — Task 12: HF Spaces deploy
+- Created HF account (Kaustubh1420), access token (write), logged in via `hf auth login`
+- Created private dataset: Kaustubh1420/smplx-measure-assets
+- Uploaded all assets to dataset:
+  - PyMAF-X checkpoint (~400MB), all smplx partial_mesh files
+  - SMPLX_NEUTRAL.npz + .pkl, SMPLX_NEUTRAL_2020.npz
+  - smpl/SMPL_NEUTRAL.pkl, MANO_RIGHT.pkl, model_transfer/* , FLAME2020/*
+  - data/J_regressor_extra.npy, smpl_mean_params.npz, flame_downsampling.npy
+- Renamed project from smplx-measure → digital-twin throughout codebase
+- Created Space: Kaustubh1420/digital-twin (Gradio, ZeroGPU)
+- Fixed multiple Python 3.13 compat issues in pymafx_backend.py:
+  - Mocked all stdlib modules removed in 3.13 (cgi, imp, aifc, etc.)
+  - Added proper numpy-backed chumpy shim (chumpy.Ch as ndarray subclass, chumpy.ch submodule)
+- Fixed setup.sh to download all required data files from private dataset
+- Fixed app.py: _run_setup() triggers setup.sh if /tmp/PyMAF-X missing, SMPLX path auto-detected
+- Added packages.txt: libgles2, libegl1 (MediaPipe system deps)
+- Added scikit-image to requirements.txt
+- Status: Space is UP, setup.sh runs cleanly, MediaPipe works (17/17 landmarks)
+- Blocked on: chumpy.ch submodule pickle deserialization — fix pushed, awaiting restart
+- Next: verify clean load after chumpy.ch fix → if more errors, keep fixing → Task 13
+
+## 2026-04-24 (session 6) — Task 12 complete, GitHub remote set up
+- Fixed chumpy shim (series of fixes across multiple deploys):
+  - _Ch: plain Python class (not ndarray subclass) with __setstate__ reading 'x' key
+  - Added MetaPathFinder import hook to catch any chumpy.* submodule at runtime
+  - _Select.__setstate__: reconstructs a.ravel()[idxs].reshape(preferred_shape) — confirmed format by inspecting MANO_RIGHT.pkl with real chumpy
+  - Pre-registered known submodules: chumpy.ch, reordering, utils, optimization, linalg, logic, indexed_inputs, check_derivatives
+- Fixed missing files: MANO_LEFT.pkl (copy of RIGHT in setup.sh), smpl_vert_segmentation.json (uploaded from GarmentCode repo)
+- Model loads cleanly, inference runs end-to-end on HF Spaces ZeroGPU ✓
+- Set up GitHub remote: github.com/Kaustubh-1420/digital-twin (private, SSH auth)
+- All changes committed and pushed to GitHub
+- Next: Task 13 — scaffold Next.js frontend
