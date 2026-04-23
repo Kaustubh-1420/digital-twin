@@ -22,7 +22,9 @@ export async function runPipeline(
     throw new Error(statusText || "No avatar returned from server.");
   }
 
-  return { glbUrl: glbData.url, measurements: measurementsText };
+  // Proxy through local route to avoid cross-origin issues with the HF Space URL
+  const proxiedUrl = `/api/glb?url=${encodeURIComponent(glbData.url)}`;
+  return { glbUrl: proxiedUrl, measurements: measurementsText };
 }
 
 export function parseMeasurements(text: string): Record<string, string> {
