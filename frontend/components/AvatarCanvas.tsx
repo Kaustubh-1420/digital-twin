@@ -89,11 +89,13 @@ export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
             <Avatar key={glbUrl} url={glbUrl} />
           </Suspense>
         ) : (
-          <PlaceholderFigure />
+          <Center>
+            <PlaceholderFigure />
+          </Center>
         )}
 
         <Grid
-          position={[0, -1.05, 0]}
+          position={[0, -0.9, 0]}
           args={[8, 8]}
           cellSize={0.5}
           cellColor="#27272a"
