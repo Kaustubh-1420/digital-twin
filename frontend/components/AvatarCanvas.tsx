@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useMemo, useRef } from "react";
 import type { RefObject } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
 import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
+import { driveSkeleton } from "@/lib/poseSolver";
 
 type Props = {
   glbUrl: string | null;
@@ -19,17 +20,35 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
   metalness: 0.05,
 });
 
-function Avatar({ url }: { url: string }) {
+// ── Avatar (with skeleton driving) ───────────────────────────────────────────
+
+type AvatarProps = {
+  url: string;
+  landmarksRef: RefObject<PoseLandmarks | null>;
+};
+
+function Avatar({ url, landmarksRef }: AvatarProps) {
   const { scene } = useGLTF(url);
+  const skeletonRef = useRef<THREE.Skeleton | null>(null);
 
   useMemo(() => {
     scene.traverse((obj) => {
       if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
-        (obj as THREE.SkinnedMesh).material = BODY_MATERIAL;
-        (obj as THREE.SkinnedMesh).castShadow = true;
+        const sm = obj as THREE.SkinnedMesh;
+        sm.material = BODY_MATERIAL;
+        sm.castShadow = true;
+        skeletonRef.current = sm.skeleton;
       }
     });
   }, [scene]);
+
+  // Drive bones every frame from MediaPipe world landmarks
+  useFrame(() => {
+    const lms = landmarksRef.current;
+    const sk  = skeletonRef.current;
+    if (!lms || !sk || lms.length < 33) return;
+    driveSkeleton(sk, lms);
+  });
 
   return (
     <Center>
@@ -37,6 +56,8 @@ function Avatar({ url }: { url: string }) {
     </Center>
   );
 }
+
+// ── Placeholder ───────────────────────────────────────────────────────────────
 
 function PlaceholderFigure() {
   return (
@@ -69,10 +90,9 @@ function PlaceholderFigure() {
   );
 }
 
-export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
-  // landmarksRef is read each frame inside useFrame (task 16) — no prop drilling into Canvas needed
-  void landmarksRef;
+// ── Canvas ────────────────────────────────────────────────────────────────────
 
+export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
   return (
     <div className="relative w-full h-full">
       <Canvas
@@ -86,7 +106,7 @@ export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
 
         {glbUrl ? (
           <Suspense fallback={null}>
-            <Avatar key={glbUrl} url={glbUrl} />
+            <Avatar key={glbUrl} url={glbUrl} landmarksRef={landmarksRef} />
           </Suspense>
         ) : (
           <Center>
