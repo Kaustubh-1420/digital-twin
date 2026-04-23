@@ -1,6 +1,6 @@
 """
 PyMAF-X backend — native SMPL-X betas from a single photo.
-Must be run with CWD = project root (smplx-measure/).
+Must be run with CWD = project root (digital-twin/).
 
 Requires /tmp/PyMAF-X (cloned repo) and checkpoint at:
   /tmp/PyMAF-X/data/pretrained_model/PyMAF-X_model_checkpoint_v1.1.pt
@@ -24,7 +24,143 @@ _model = None  # cached across calls
 
 
 def _ensure_mocks():
-    for mod in ['pyrender', 'neural_renderer', 'openpifpaf']:
+    import types, numpy as np
+
+    # chumpy uses `imp` (removed 3.12+) and can't be installed on Python 3.13.
+    # pkl files contain pickled chumpy.Ch objects (numpy array subclass) —
+    # need a real ndarray subclass so pickle __reduce__ round-trips correctly.
+    # Install a catch-all import hook for any chumpy.* submodule so pickle
+    # never hits ModuleNotFoundError regardless of which submodule is referenced.
+    import importlib.abc, importlib.machinery
+    class _ChumPyLoader(importlib.abc.Loader):
+        def create_module(self, spec):
+            mod = types.ModuleType(spec.name)
+            mod.__path__ = []
+            return mod
+        def exec_module(self, mod):
+            pass  # populated after _Ch is defined below
+
+    class _ChumPyFinder(importlib.abc.MetaPathFinder):
+        def find_spec(self, name, path, target=None):
+            if name == 'chumpy' or name.startswith('chumpy.'):
+                if name not in sys.modules:
+                    return importlib.machinery.ModuleSpec(name, _ChumPyLoader())
+            return None
+
+    if not any(isinstance(f, _ChumPyFinder) for f in sys.meta_path):
+        sys.meta_path.insert(0, _ChumPyFinder())
+
+    if 'chumpy' not in sys.modules:
+        class _Ch:
+            """Minimal chumpy.Ch shim — handles SMPL .pkl pickle deserialization.
+
+            Real chumpy.Ch is a plain Python class (not ndarray). Pickle calls
+            __new__(cls) with no args, then __setstate__ with chumpy's dict state
+            (key 'x' holds the raw numpy array). We implement __array__ so numpy
+            treats instances transparently as arrays.
+            """
+            def __new__(cls, *args, **kwargs):
+                return object.__new__(cls)
+
+            def __init__(self, x=None, *args, **kwargs):
+                if x is None:
+                    self._r = np.empty(0)
+                else:
+                    try:
+                        self._r = np.asarray(x)
+                    except Exception:
+                        self._r = np.empty(0)
+
+            def __setstate__(self, state):
+                # chumpy stores {'x': array_value, ...} or full __dict__
+                try:
+                    if isinstance(state, dict):
+                        x = state.get('x', state.get('r', state.get('_r', None)))
+                        self._r = np.asarray(x) if x is not None else np.empty(0)
+                    else:
+                        self._r = np.empty(0)
+                except Exception:
+                    self._r = np.empty(0)
+
+            def __array__(self, dtype=None, copy=None):
+                return self._r if dtype is None else self._r.astype(dtype)
+
+            # Special methods not caught by __getattr__ — delegate explicitly
+            def __getitem__(self, key):   return self._r[key]
+            def __setitem__(self, key, v): self._r[key] = v
+            def __len__(self):            return len(self._r)
+            def __iter__(self):           return iter(self._r)
+            def __float__(self):          return float(self._r)
+            def __int__(self):            return int(self._r)
+
+            @property
+            def r(self):    return self._r
+            @property
+            def shape(self): return self._r.shape
+            @property
+            def T(self):     return self._r.T
+            @property
+            def ndim(self):  return self._r.ndim
+            @property
+            def dtype(self): return self._r.dtype
+            @property
+            def size(self):  return self._r.size
+
+            def __getattr__(self, name):
+                # Catch-all: delegate attribute lookups to the underlying array.
+                # Guard against infinite recursion before _r is set.
+                if name == '_r':
+                    raise AttributeError(name)
+                return getattr(self._r, name)
+
+        # chumpy.reordering.Select: evaluates a.ravel()[idxs].reshape(preferred_shape).
+        # Confirmed format from inspecting MANO_RIGHT.pkl with real chumpy:
+        #   state = {'a': _Ch(x=ndarray(778,3,20)), 'idxs': ndarray(23340,), 'preferred_shape': (778,3,10), ...}
+        class _Select(_Ch):
+            def __setstate__(self, state):
+                try:
+                    a              = state.get('a')
+                    idxs           = state.get('idxs')
+                    preferred_shape = state.get('preferred_shape')
+                    src = np.array(a)           # calls a.__array__() → a._r
+                    result = src.ravel()[idxs]  # flat indexing
+                    if preferred_shape is not None:
+                        result = result.reshape(preferred_shape)
+                    self._r = result
+                except Exception:
+                    self._r = np.empty(0)
+
+        def _make_chumpy_mod(name):
+            m = types.ModuleType(name)
+            m.Ch = _Ch
+            m.array = np.array
+            m.__path__ = []
+            sys.modules[name] = m
+            return m
+
+        _chumpy = _make_chumpy_mod('chumpy')
+        # Pre-register every known chumpy submodule; the import hook above
+        # catches any others that appear in pickle streams at runtime.
+        for _sub in ['chumpy.ch', 'chumpy.reordering', 'chumpy.utils',
+                     'chumpy.optimization', 'chumpy.linalg', 'chumpy.logic',
+                     'chumpy.indexed_inputs', 'chumpy.check_derivatives']:
+            _sm = _make_chumpy_mod(_sub)
+            setattr(_chumpy, _sub.split('.')[1], _sm)
+
+        # Attach Select (and common aliases) to reordering
+        _chumpy.reordering.Select = _Select
+        _chumpy.reordering.Reorder = _Select  # same pattern, different name
+        _chumpy.ch.Select = _Select
+
+    # pyrender/neural_renderer/openpifpaf not needed for inference
+    # remainder were removed from stdlib in Python 3.12/3.13
+    _mocks = [
+        'pyrender', 'neural_renderer', 'openpifpaf',
+        'cgi', 'cgitb', 'imp', 'aifc', 'audioop', 'chunk', 'crypt',
+        'imghdr', 'mailcap', 'msilib', 'nis', 'nntplib', 'ossaudiodev',
+        'pipes', 'sndhdr', 'spwd', 'sunau', 'telnetlib', 'uu', 'xdrlib',
+    ]
+    for mod in _mocks:
         if mod not in sys.modules:
             sys.modules[mod] = MagicMock()
 

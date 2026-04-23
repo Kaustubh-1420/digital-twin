@@ -1,5 +1,5 @@
 ---
-title: smplx-measure
+title: digital-twin
 emoji: 🧍
 colorFrom: indigo
 colorTo: purple
@@ -8,4 +8,5 @@ sdk_version: "6.13.0"
 app_file: app.py
 pinned: false
 license: mit
+hardware: zero-gpu
 ---

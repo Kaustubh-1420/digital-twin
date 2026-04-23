@@ -1,4 +1,4 @@
-# HF Spaces dependencies for smplx-measure
+# HF Spaces dependencies for digital-twin
 # PyMAF-X is cloned at startup via setup.sh
 
 # Core ML
@@ -20,6 +20,7 @@ opencv-python-headless
 trimesh
 scipy
 scikit-learn
+scikit-image
 numpy
 
 # HMR2 (fallback backend, installs PyMAF-X deps too)

@@ -1,14 +1,28 @@
 """
-smplx-measure Gradio app
+digital-twin Gradio app
 Photo + height → personalized SMPL-X avatar (GLB) + body measurements.
 Deployed on HF Spaces ZeroGPU.
 """
 import os
 import sys
 import tempfile
+import subprocess
 
 # Must be set before any torch/CUDA import on ZeroGPU
 os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
+
+# ── run setup.sh if PyMAF-X not present (HF Spaces may not auto-run it) ──────
+ROOT = os.path.dirname(os.path.abspath(__file__))
+
+def _run_setup():
+    if not os.path.isdir('/tmp/PyMAF-X'):
+        setup = os.path.join(ROOT, 'setup.sh')
+        print('Running setup.sh...')
+        subprocess.run(['bash', setup], check=True)
+    else:
+        print('PyMAF-X already present, skipping setup.')
+
+_run_setup()
 
 import numpy as np
 import torch
@@ -18,14 +32,17 @@ import trimesh
 import gradio as gr
 
 # ── path setup ────────────────────────────────────────────────────────────────
-ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'backend'))
 
 from pymafx_backend import infer as pymafx_infer, load_model as pymafx_load
 from scale import scale_to_height
 from measurements import extract_measurements
 
-SMPLX_MODEL_PATH = os.path.join(ROOT, 'models')
+SMPLX_MODEL_PATH = (
+    '/tmp/smplx-models'
+    if os.path.isdir('/tmp/smplx-models/smplx')
+    else os.path.join(ROOT, 'models')
+)
 
 # ── ZeroGPU ───────────────────────────────────────────────────────────────────
 try:
@@ -138,8 +155,8 @@ CSS = """
 #meas  { font-family: monospace; font-size: 14px; white-space: pre; }
 """
 
-with gr.Blocks(css=CSS, title='smplx-measure') as demo:
-    gr.Markdown('# smplx-measure\n**Photo → personalized SMPL-X body avatar + measurements**',
+with gr.Blocks(title='digital-twin') as demo:
+    gr.Markdown('# digital-twin\n**Photo → personalized SMPL-X body avatar + measurements**',
                 elem_id='title')
 
     with gr.Row():
@@ -181,7 +198,9 @@ with gr.Blocks(css=CSS, title='smplx-measure') as demo:
 
 
 if __name__ == '__main__':
-    # pre-load model so first request is faster
-    print('Pre-loading PyMAF-X...')
-    pymafx_load()
-    demo.launch(share=False)
+    try:
+        print('Pre-loading PyMAF-X...')
+        pymafx_load()
+    except Exception as e:
+        print(f'Pre-load failed (will retry on first request): {e}')
+    demo.launch(css=CSS, share=False)

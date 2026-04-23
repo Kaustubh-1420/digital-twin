@@ -1,4 +1,4 @@
-# smplx-measure
+# digital-twin
 
 > Upload a photo + enter your height → get a fitted 3D body mesh + 6 body measurements.
 
