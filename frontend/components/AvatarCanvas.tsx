@@ -42,6 +42,7 @@ function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
         skeletonRef.current = sm.skeleton;
       }
     });
+    console.log("[Avatar] skeleton after load:", skeletonRef.current ? skeletonRef.current.bones.length + " bones" : "NULL");
   }, [scene]);
 
   useFrame(() => {
