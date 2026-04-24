@@ -32,6 +32,7 @@ const R = (x: number, y: number, z: number) =>
 
 const REST: Record<string, THREE.Vector3> = {
   Spine:         R( 0,     1,     0),
+  Neck:          R( 0,     1,     0),
   LeftUpperArm:  R( 0.99, -0.13,  0),
   RightUpperArm: R(-0.99, -0.13,  0),
   LeftLowerArm:  R( 1,     0,     0),
@@ -53,6 +54,7 @@ type BoneCfg = {
 // Normal mode: anatomical — your left arm drives avatar's left arm.
 const BONE_CFGS: BoneCfg[] = [
   { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
+  { name: "Neck",       from: MP.NOSE,     to: MP.NOSE,          vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.NOSE] },
 
   { name: "LeftUpperLeg",  from: MP.LEFT_HIP,    to: MP.LEFT_KNEE   },
   { name: "LeftLowerLeg",  from: MP.LEFT_KNEE,   to: MP.LEFT_ANKLE  },
@@ -68,6 +70,7 @@ const BONE_CFGS: BoneCfg[] = [
 // Mirror mode: selfie/webcam — swap left↔right so the avatar looks like a reflection.
 const BONE_CFGS_MIRROR: BoneCfg[] = [
   { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
+  { name: "Neck",       from: MP.NOSE,     to: MP.NOSE,          vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.NOSE] },
 
   // Legs swapped
   { name: "LeftUpperLeg",  from: MP.RIGHT_HIP,   to: MP.RIGHT_KNEE  },
@@ -83,6 +86,7 @@ const BONE_CFGS_MIRROR: BoneCfg[] = [
 ];
 
 const SPINE_BONES = new Set(["Spine"]);
+const NECK_BONES  = new Set(["Neck"]);
 
 // ── Module-level state ────────────────────────────────────────────────────────
 
@@ -151,9 +155,11 @@ export function driveSkeleton(
   skeleton.bones.forEach((b) => bones.set(b.name, b));
 
   const shoulderMid = midpoint(src, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER);
-  // Hip midpoint ≈ world origin by MediaPipe convention — valid even when hips out of frame.
-  // spineDir = direction from origin to shoulderMid.
+  // spineDir = direction from hip origin to shoulderMid.
   const spineDir = shoulderMid.clone().normalize();
+  // neckDir = direction from shoulderMid to nose — drives head turn/tilt.
+  const nosePos  = new THREE.Vector3(src[MP.NOSE].x, src[MP.NOSE].y, src[MP.NOSE].z);
+  const neckDir  = nosePos.clone().sub(shoulderMid).normalize();
 
   if (logFrame || logFirst) {
     console.group(`[PoseSolver] frame=${_dbgFrame} mirror=${mirror}`);
@@ -179,8 +185,9 @@ export function driveSkeleton(
     }
 
     let observed: THREE.Vector3;
-    if (SPINE_BONES.has(cfg.name)) observed = spineDir;
-    else                           observed = lmDir(src, cfg.from, cfg.to);
+    if (SPINE_BONES.has(cfg.name))      observed = spineDir;
+    else if (NECK_BONES.has(cfg.name))  observed = neckDir;
+    else                                observed = lmDir(src, cfg.from, cfg.to);
 
     // Swing-decompose in parent-local space.
     // Computing worldQ first (setFromUnitVectors against static restDir) is WRONG
