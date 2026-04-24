@@ -23,7 +23,9 @@ export function usePoseLandmarker() {
   const [error, setError] = useState<string | null>(null);
 
   // Ref so bone-driving code can read without React re-renders each frame
-  const landmarksRef = useRef<PoseLandmarks | null>(null);
+  const landmarksRef    = useRef<PoseLandmarks | null>(null);
+  // Normalized (image-space) landmarks for the 2D overlay canvas
+  const normLandmarksRef = useRef<PoseLandmarks | null>(null);
 
   const landmarkerRef = useRef<import("@mediapipe/tasks-vision").PoseLandmarker | null>(null);
   const videoRef      = useRef<HTMLVideoElement | null>(null);
@@ -48,6 +50,7 @@ export function usePoseLandmarker() {
         if (!cancelled) {
           landmarkerRef.current = lm;
           setReady(true);
+          console.log("[MediaPipe] model ready");
         }
       } catch (e) {
         if (!cancelled)
@@ -72,8 +75,10 @@ export function usePoseLandmarker() {
       await video.play();
       videoRef.current = video;
       setActive(true);
+      console.log("[MediaPipe] webcam started, rAF detection loop running");
 
       let lastTs = -1;
+      let _dbgLmFrame = 0;
       const detect = () => {
         const video = videoRef.current;
         const lm = landmarkerRef.current;
@@ -86,6 +91,13 @@ export function usePoseLandmarker() {
           const result = lm.detectForVideo(video, ts);
           const raw = result.worldLandmarks?.[0];
           landmarksRef.current = raw ? filterRef.current.filter(raw) : null;
+          normLandmarksRef.current = (result.landmarks?.[0] as PoseLandmarks) ?? null;
+          // DEBUG: log first detection and then every 300 frames — remove when stable
+          if (raw && ((_dbgLmFrame === 0) || (_dbgLmFrame % 300 === 0))) {
+            const h = raw[23]; const s = raw[11];
+            console.log(`[MediaPipe] frame=${_dbgLmFrame} worldLandmarks OK len=${raw.length} hipL.y=${h.y.toFixed(3)} shldL.y=${s.y.toFixed(3)} (expect hipL.y<0, shldL.y>0 for Y-up)`);
+          }
+          if (raw) _dbgLmFrame++;
         }
         rafRef.current = requestAnimationFrame(detect);
       };
@@ -104,9 +116,10 @@ export function usePoseLandmarker() {
     }
     videoRef.current = null;
     landmarksRef.current = null;
+    normLandmarksRef.current = null;
     filterRef.current = new LandmarksFilter(1.0, 0.3); // reset filter state
     setActive(false);
   }, []);
 
-  return { ready, active, error, landmarksRef, start, stop };
+  return { ready, active, error, landmarksRef, normLandmarksRef, videoRef, start, stop };
 }

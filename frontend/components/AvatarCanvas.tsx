@@ -47,7 +47,13 @@ function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
   useFrame(() => {
     const lms = landmarksRef.current;
     const sk  = skeletonRef.current;
-    if (!lms || !sk || lms.length < 33) return;
+    if (!lms || !sk || lms.length < 33) {
+      // DEBUG: log why we're bailing — remove once solver is stable
+      if (Math.random() < 0.01) {
+        console.log("[AvatarCanvas] useFrame bail: lms=", lms ? lms.length : null, "sk=", !!sk);
+      }
+      return;
+    }
     driveSkeleton(sk, lms, mirrorRef.current);
   });
 

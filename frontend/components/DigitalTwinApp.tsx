@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import UploadForm from "./UploadForm";
 import AvatarViewer from "./AvatarViewer";
 import MeasurementsPanel from "./MeasurementsPanel";
+import PoseOverlay from "./PoseOverlay";
 import { runPipeline } from "@/lib/api";
 import { usePoseLandmarker } from "@/hooks/usePoseLandmarker";
 import { resetSkeletonDriverState } from "@/lib/poseSolver";
@@ -17,7 +18,7 @@ export default function DigitalTwinApp() {
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [measurements, setMeasurements] = useState<string | null>(null);
 
-  const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, start: startWebcam, stop: stopWebcam } =
+  const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, normLandmarksRef, videoRef, start: startWebcam, stop: stopWebcam } =
     usePoseLandmarker();
 
   const [mirrorMode, setMirrorMode] = useState(false);
@@ -26,17 +27,20 @@ export default function DigitalTwinApp() {
   function toggleMirror() {
     mirrorRef.current = !mirrorRef.current;
     setMirrorMode(mirrorRef.current);
+    console.log(`[App] mirror toggled → ${mirrorRef.current ? "ON" : "OFF"}`);
   }
 
   function handleStopWebcam() {
     stopWebcam();
     resetSkeletonDriverState();
+    console.log("[App] webcam stopped, skeleton state reset");
   }
 
   async function handleSubmit(file: File, heightCm: number) {
     setStatus("loading");
     setStatusText("Connecting to server…");
     setError(null);
+    console.log(`[App] submit: file=${file.name} (${(file.size / 1024).toFixed(0)} KB), height=${heightCm} cm`);
 
     try {
       setStatusText("Running body estimation (30–60 s on cold GPU)…");
@@ -44,9 +48,11 @@ export default function DigitalTwinApp() {
       setGlbUrl(result.glbUrl);
       setMeasurements(result.measurements);
       setStatus("done");
+      console.log("[App] pipeline done — glbUrl=", result.glbUrl, "measurements=", result.measurements);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
       setStatus("error");
+      console.error("[App] pipeline error:", e);
     }
   }
 
@@ -115,12 +121,17 @@ export default function DigitalTwinApp() {
 
       {/* Right panel */}
       <main className="flex flex-1 min-w-0 min-h-0 p-6 gap-6">
-        <div className="flex flex-col flex-1 min-w-0 min-h-0">
+        <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
           <AvatarViewer
             glbUrl={glbUrl}
             loading={loading}
             landmarksRef={landmarksRef}
             mirrorRef={mirrorRef}
+          />
+          <PoseOverlay
+            videoRef={videoRef}
+            normLandmarksRef={normLandmarksRef}
+            active={webcamActive}
           />
         </div>
 

@@ -1,6 +1,13 @@
 import * as THREE from "three";
 import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
 
+// Toggle to see per-frame diagnostics in the browser console.
+const DEBUG_POSE = true;
+let _dbgFrame = 0;
+
+// Confirm this module version is loaded — remove when solver is stable
+console.log("[PoseSolver] module loaded — local-space swing decomp, y/z flip ON, threshold=0.45");
+
 // ── MediaPipe landmark indices ────────────────────────────────────────────────
 const MP = {
   NOSE: 0,
@@ -14,35 +21,25 @@ const MP = {
   LEFT_FOOT: 31,     RIGHT_FOOT: 32,
 } as const;
 
-const VISIBILITY_THRESHOLD = 0.6;
-
-// Reject bone updates where the quaternion delta exceeds this angle (radians).
-// Prevents shoulder-pop singularities from flipping the arm 180° in one frame.
-const MAX_DELTA_HALF_ANGLE_COS = Math.cos(1.2 / 2);
+const VISIBILITY_THRESHOLD = 0.45;
 
 // ── Rest directions ───────────────────────────────────────────────────────────
-// Measured from SMPL-X T-pose joint positions. MediaPipe world landmarks share
-// the same axis convention as SMPL-X: x = person's left (+x), y = up, z = toward camera.
-// No coordinate transform needed — just compare restDir to observed direction directly.
+// MediaPipe world landmarks are Y-UP (hip-centred, metric). No coordinate
+// transform needed — compare restDir to observed direction directly.
+// Using clean cardinal directions to avoid compounding small Z errors.
 const R = (x: number, y: number, z: number) =>
   new THREE.Vector3(x, y, z).normalize();
 
 const REST: Record<string, THREE.Vector3> = {
-  Spine:         R(-0.02,  0.97, -0.24),
-  Chest:         R( 0.07,  1.00, -0.04),
-  UpperChest:    R(-0.19,  0.86,  0.47),
-  Neck:          R(-0.07,  0.98, -0.19),
-  Head:          R( 0.15,  0.98,  0.13),
-
-  LeftUpperArm:  R( 0.95, -0.27, -0.16),
-  LeftLowerArm:  R( 1.00,  0.09, -0.01),
-  RightUpperArm: R(-0.99, -0.13, -0.10),
-  RightLowerArm: R(-1.00, -0.02, -0.06),
-
-  LeftUpperLeg:  R( 0.14, -0.99, -0.02),
-  LeftLowerLeg:  R(-0.11, -0.99, -0.08),
-  RightUpperLeg: R(-0.12, -0.99, -0.05),
-  RightLowerLeg: R( 0.04, -1.00, -0.05),
+  Spine:         R( 0,     1,     0),
+  LeftUpperArm:  R( 0.99, -0.13,  0),
+  RightUpperArm: R(-0.99, -0.13,  0),
+  LeftLowerArm:  R( 1,     0,     0),
+  RightLowerArm: R(-1,     0,     0),
+  LeftUpperLeg:  R( 0,    -1,     0),
+  LeftLowerLeg:  R( 0,    -1,     0),
+  RightUpperLeg: R( 0,    -1,     0),
+  RightLowerLeg: R( 0,    -1,     0),
 };
 
 // ── Bone configs ──────────────────────────────────────────────────────────────
@@ -55,11 +52,7 @@ type BoneCfg = {
 
 // Normal mode: anatomical — your left arm drives avatar's left arm.
 const BONE_CFGS: BoneCfg[] = [
-  // Only drive Spine for the trunk — Chest/UpperChest inherit and stay in bind pose.
-  // Driving all three compounds rotations and destroys the mesh.
-  { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
-  { name: "Neck",       from: MP.LEFT_SHOULDER, to: MP.LEFT_EAR,  vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.LEFT_EAR, MP.RIGHT_EAR] },
-  { name: "Head",       from: MP.LEFT_EAR,      to: MP.NOSE,       vis: [MP.LEFT_EAR, MP.RIGHT_EAR, MP.NOSE] },
+  { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
 
   { name: "LeftUpperLeg",  from: MP.LEFT_HIP,    to: MP.LEFT_KNEE   },
   { name: "LeftLowerLeg",  from: MP.LEFT_KNEE,   to: MP.LEFT_ANKLE  },
@@ -73,12 +66,8 @@ const BONE_CFGS: BoneCfg[] = [
 ];
 
 // Mirror mode: selfie/webcam — swap left↔right so the avatar looks like a reflection.
-// Your physical right arm drives the avatar's left arm (which appears on the right side
-// of the screen), matching the natural selfie-cam experience.
 const BONE_CFGS_MIRROR: BoneCfg[] = [
-  { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
-  { name: "Neck",       from: MP.LEFT_SHOULDER, to: MP.LEFT_EAR,  vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.LEFT_EAR, MP.RIGHT_EAR] },
-  { name: "Head",       from: MP.LEFT_EAR,      to: MP.NOSE,       vis: [MP.LEFT_EAR, MP.RIGHT_EAR, MP.NOSE] },
+  { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
 
   // Legs swapped
   { name: "LeftUpperLeg",  from: MP.RIGHT_HIP,   to: MP.RIGHT_KNEE  },
@@ -94,7 +83,6 @@ const BONE_CFGS_MIRROR: BoneCfg[] = [
 ];
 
 const SPINE_BONES = new Set(["Spine"]);
-const NECK_BONES  = new Set(["Neck"]);
 
 // ── Module-level state ────────────────────────────────────────────────────────
 
@@ -102,12 +90,10 @@ const _prevBoneQ = new Map<string, THREE.Quaternion>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const _v1 = new THREE.Vector3();
-const _v2 = new THREE.Vector3();
-const _q1 = new THREE.Quaternion();
+const _v1 = new THREE.Vector3();   // scratch: observed in parent-local space
+const _q1 = new THREE.Quaternion(); // scratch: parentWorldQ.inverse
 const _localQ = new THREE.Quaternion();
 const _parentWorldQ = new THREE.Quaternion();
-const _worldQ = new THREE.Quaternion();
 
 function landmarkOk(lms: PoseLandmarks, idx: number): boolean {
   const vis = lms[idx]?.visibility;
@@ -131,9 +117,15 @@ function lmDir(lms: PoseLandmarks, from: number, to: number): THREE.Vector3 {
   return _v1.clone().normalize();
 }
 
-function midDir(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3 {
-  _v2.subVectors(to, from).normalize();
-  return _v2.clone();
+
+function fv(v: THREE.Vector3): string {
+  return `(${v.x.toFixed(3)}, ${v.y.toFixed(3)}, ${v.z.toFixed(3)})`;
+}
+
+function fq(q: THREE.Quaternion): string {
+  const e = new THREE.Euler().setFromQuaternion(q, "XYZ");
+  const deg = (r: number) => ((r * 180) / Math.PI).toFixed(1);
+  return `euler(${deg(e.x)}°,${deg(e.y)}°,${deg(e.z)}°)`;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -143,23 +135,34 @@ export function driveSkeleton(
   lms: PoseLandmarks,
   mirror = false,
 ): void {
-  // MediaPipe world landmarks: Y-down, Z-into-screen (OpenCV/camera convention).
-  // SMPL-X rest directions: Y-up, Z-toward-viewer (OpenGL convention).
-  // Negate Y and Z to align the two spaces.
+  // MediaPipe world landmarks are Y-DOWN (camera/OpenCV convention).
+  // Negate Y and Z to convert to Y-UP OpenGL space matching our REST directions.
   const src: PoseLandmarks = lms.map(lm => ({
     x: lm.x, y: -lm.y, z: -lm.z, visibility: lm.visibility,
   }));
+
+  _dbgFrame++;
+  const logFrame = DEBUG_POSE && _dbgFrame % 30 === 1; // log every 30th frame
+  const logFirst = DEBUG_POSE && _dbgFrame <= 3;       // log first 3 frames always
 
   const cfgs = mirror ? BONE_CFGS_MIRROR : BONE_CFGS;
 
   const bones: Map<string, THREE.Bone> = new Map();
   skeleton.bones.forEach((b) => bones.set(b.name, b));
 
-  const hipMid      = midpoint(src, MP.LEFT_HIP,      MP.RIGHT_HIP);
-  const shoulderMid = midpoint(src, MP.LEFT_SHOULDER,  MP.RIGHT_SHOULDER);
-  const earMid      = midpoint(src, MP.LEFT_EAR,       MP.RIGHT_EAR);
-  const spineDir    = midDir(hipMid, shoulderMid);
-  const neckDir     = midDir(shoulderMid, earMid);
+  const shoulderMid = midpoint(src, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER);
+  // Hip midpoint ≈ world origin by MediaPipe convention — valid even when hips out of frame.
+  // spineDir = direction from origin to shoulderMid.
+  const spineDir = shoulderMid.clone().normalize();
+
+  if (logFrame || logFirst) {
+    console.group(`[PoseSolver] frame=${_dbgFrame} mirror=${mirror}`);
+    console.log("  shldL  :", fv(new THREE.Vector3(src[MP.LEFT_SHOULDER].x,  src[MP.LEFT_SHOULDER].y,  src[MP.LEFT_SHOULDER].z)));
+    console.log("  shldR  :", fv(new THREE.Vector3(src[MP.RIGHT_SHOULDER].x, src[MP.RIGHT_SHOULDER].y, src[MP.RIGHT_SHOULDER].z)));
+    console.log("  shoulderMid:", fv(shoulderMid), "  ← Y should be POSITIVE");
+    console.log("  spineDir   :", fv(spineDir),    "  ← Y should be POSITIVE (~1)");
+    console.groupEnd();
+  }
 
   for (const cfg of cfgs) {
     const bone    = bones.get(cfg.name);
@@ -167,25 +170,45 @@ export function driveSkeleton(
     if (!bone || !restDir) continue;
 
     const visIndices = cfg.vis ?? [cfg.from, cfg.to];
-    if (!allVisible(src, visIndices)) continue;
+    if (!allVisible(src, visIndices)) {
+      if (logFirst || logFrame) {
+        const scores = visIndices.map(i => `lm${i}=${lms[i]?.visibility?.toFixed(2) ?? "?"}`).join(" ");
+        console.log(`[PoseSolver] ${cfg.name}: SKIPPED visibility: ${scores} (threshold=${VISIBILITY_THRESHOLD})`);
+      }
+      continue;
+    }
 
     let observed: THREE.Vector3;
-    if (SPINE_BONES.has(cfg.name))     observed = spineDir;
-    else if (NECK_BONES.has(cfg.name)) observed = neckDir;
-    else                               observed = lmDir(src, cfg.from, cfg.to);
+    if (SPINE_BONES.has(cfg.name)) observed = spineDir;
+    else                           observed = lmDir(src, cfg.from, cfg.to);
 
-    _worldQ.setFromUnitVectors(restDir, observed);
-
+    // Swing-decompose in parent-local space.
+    // Computing worldQ first (setFromUnitVectors against static restDir) is WRONG
+    // when a parent bone is driven — the arm's T-pose world direction changes with
+    // the parent rotation, so restDir is no longer the right reference in world space.
+    // The correct formulation: rotate observed into parent-local space, then
+    // setFromUnitVectors(restDir, localObs) gives localQ directly.
     _parentWorldQ.identity();
     if (bone.parent) bone.parent.getWorldQuaternion(_parentWorldQ);
-    _q1.copy(_parentWorldQ).invert();
-    _localQ.multiplyQuaternions(_q1, _worldQ);
+    _q1.copy(_parentWorldQ).invert();          // q1 = parentWorldQ.inverse
+    _v1.copy(observed).applyQuaternion(_q1);   // v1 = observed in parent-local space
+    _localQ.setFromUnitVectors(restDir, _v1);
 
-    // Hysteresis: reject frame if delta > ~69° to catch shoulder-pop singularities
     const prev = _prevBoneQ.get(cfg.name);
-    if (prev) {
-      if (Math.abs(prev.dot(_localQ)) < MAX_DELTA_HALF_ANGLE_COS) continue;
+    const dot  = prev ? Math.abs(prev.dot(_localQ)) : 1;
+
+    if (logFrame || logFirst) {
+      console.log(
+        `[PoseSolver] ${cfg.name.padEnd(14)}`,
+        `rest=${fv(restDir)}`,
+        `obsWorld=${fv(observed)}`,
+        `obsLocal=${fv(_v1)}`,
+        `dot(rest,obsLocal)=${restDir.dot(_v1).toFixed(3)}`,
+        `localQ=${fq(_localQ)}`,
+        `dot(prev,cur)=${dot.toFixed(3)}`,
+      );
     }
+
     if (!_prevBoneQ.has(cfg.name)) _prevBoneQ.set(cfg.name, new THREE.Quaternion());
     _prevBoneQ.get(cfg.name)!.copy(_localQ);
 
@@ -196,4 +219,5 @@ export function driveSkeleton(
 
 export function resetSkeletonDriverState(): void {
   _prevBoneQ.clear();
+  _dbgFrame = 0;
 }
