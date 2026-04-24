@@ -12,7 +12,6 @@ export async function runPipeline(
   const client = await Client.connect("Kaustubh1420/digital-twin");
   // fn_index 0 = run_pipeline (first click handler in the Blocks app)
   const result = await client.predict(0, [imageFile, heightCm]);
-  console.log("[api] raw result.data:", JSON.stringify(result.data));
   const [glbData, measurementsText, statusText] = result.data as [
     { url: string } | null,
     string,

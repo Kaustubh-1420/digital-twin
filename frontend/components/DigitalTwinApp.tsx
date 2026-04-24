@@ -20,8 +20,8 @@ export default function DigitalTwinApp() {
   const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, start: startWebcam, stop: stopWebcam } =
     usePoseLandmarker();
 
-  const [mirrorMode, setMirrorMode] = useState(true);
-  const mirrorRef = useRef(true);
+  const [mirrorMode, setMirrorMode] = useState(false);
+  const mirrorRef = useRef(false);
 
   function toggleMirror() {
     mirrorRef.current = !mirrorRef.current;
