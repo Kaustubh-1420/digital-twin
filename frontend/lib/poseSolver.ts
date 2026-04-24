@@ -32,7 +32,10 @@ const R = (x: number, y: number, z: number) =>
 
 const REST: Record<string, THREE.Vector3> = {
   Spine:         R( 0,     1,     0),
-  Neck:          R( 0,     1,     0),
+  // Neutral "facing camera" direction: nose is as far in front of shoulders
+  // as it is above them (sitting at a webcam). R(0,1,0) causes a constant
+  // ~30° forward bow. R(0,1,1) matches the actual neutral observed direction.
+  Neck:          R( 0,     1,     1),
   LeftUpperArm:  R( 0.99, -0.13,  0),
   RightUpperArm: R(-0.99, -0.13,  0),
   LeftLowerArm:  R( 1,     0,     0),
