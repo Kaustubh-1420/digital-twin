@@ -163,9 +163,9 @@ with gr.Blocks(title='digital-twin') as demo:
             status_box = gr.Textbox(label='Status', interactive=False, lines=1)
 
         with gr.Column(scale=2):
-            model3d = gr.Model3D(
-                label='Your avatar (T-pose)',
-                clear_color=[0.15, 0.15, 0.15, 1.0],
+            model3d = gr.File(
+                label='Avatar GLB (download or use via frontend)',
+                file_types=['.glb'],
             )
             meas_box = gr.Textbox(
                 label='Measurements',
