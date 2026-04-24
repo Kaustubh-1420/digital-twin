@@ -78,8 +78,8 @@ const NECK_BONES  = new Set(["Neck"]);
 
 // ── Module-level state ────────────────────────────────────────────────────────
 
-// Persists across frames; used for hysteresis check
 const _prevBoneQ = new Map<string, THREE.Quaternion>();
+let _dbgCount = 0;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -165,6 +165,17 @@ export function driveSkeleton(
     if (bone.parent) bone.parent.getWorldQuaternion(_parentWorldQ);
     _q1.copy(_parentWorldQ).invert();
     _localQ.multiplyQuaternions(_q1, _worldQ);
+
+    // debug: log LeftUpperArm values once every ~3 s
+    if (cfg.name === "LeftUpperArm" && ++_dbgCount % 180 === 1) {
+      const f = (v: number) => v.toFixed(3);
+      console.log(
+        `[pose] obs=(${f(observed.x)},${f(observed.y)},${f(observed.z)})`,
+        `wQ=(${f(_worldQ.x)},${f(_worldQ.y)},${f(_worldQ.z)},${f(_worldQ.w)})`,
+        `pQ=(${f(_parentWorldQ.x)},${f(_parentWorldQ.y)},${f(_parentWorldQ.z)},${f(_parentWorldQ.w)})`,
+        `lQ=(${f(_localQ.x)},${f(_localQ.y)},${f(_localQ.z)},${f(_localQ.w)})`,
+      );
+    }
 
     // 5. Hysteresis — reject frame if delta > MAX_DELTA (catches shoulder-pop singularities)
     const prev = _prevBoneQ.get(cfg.name);
