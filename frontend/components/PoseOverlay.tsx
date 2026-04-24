@@ -93,7 +93,7 @@ export default function PoseOverlay({ videoRef, normLandmarksRef, active }: Prop
   if (!active) return null;
 
   return (
-    <div className="absolute bottom-3 right-3 rounded-lg overflow-hidden border border-zinc-700 shadow-xl"
+    <div className="absolute bottom-3 right-3 z-10 rounded-lg overflow-hidden border border-zinc-700 shadow-xl"
          style={{ width: 200, height: 150 }}>
       <canvas
         ref={canvasRef}

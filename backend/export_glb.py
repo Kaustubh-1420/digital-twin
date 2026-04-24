@@ -74,33 +74,35 @@ N_JOINTS = len(_JOINT_NAMES)  # 22
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def _top4_weights(lbs_weights, vertices=None):
+def _top4_weights(lbs_weights, vertices=None, joint_positions=None):
     """
-    lbs_weights: (N, >=22) float32 — SMPL-X LBS weights (first 22 cols = body joints)
-    vertices:    (N, 3)   float32 — T-pose vertex positions (used to left/right-clamp hands)
-    Returns joint_indices (N,4) uint16, skin_weights (N,4) float32 — top-4 per vertex.
+    lbs_weights:     (N, >=22) float32 — SMPL-X LBS weights (first 22 cols = body joints)
+    vertices:        (N, 3)   float32 — T-pose vertex positions
+    joint_positions: (22, 3)  float32 — T-pose joint world positions
 
-    SMPL-X has 55 joints; we only export 22. Finger vertices have most weight on joints
-    22-54 which get discarded. Without clamping they renormalize onto a random body joint
-    (often Hips), causing the arm-explosion artifact. We detect them by low captured-weight
-    and pin them to the nearest wrist (joint 20 = left, 21 = right) using T-pose x-sign.
+    SMPL-X has 55 joints; we export only 22. Vertices whose weight is mostly on discarded
+    joints (fingers, jaw, eyes) renormalize onto wrong body joints → explosion artifacts.
+    Fix: detect low-captured-weight vertices and clamp each to its nearest joint by
+    Euclidean distance. This correctly maps fingers→wrist, jaw/face→head, etc.
     """
     w = np.asarray(lbs_weights[:, :N_JOINTS], dtype=np.float32).copy()
 
-    if lbs_weights.shape[1] > N_JOINTS and vertices is not None:
+    if lbs_weights.shape[1] > N_JOINTS and vertices is not None and joint_positions is not None:
         verts = np.asarray(vertices, dtype=np.float32)
-        # vertices whose weight is mostly on discarded finger joints
-        hand_mask = w.sum(axis=1) < 0.3
-        if hand_mask.any():
-            left_mask  = hand_mask & (verts[:, 0] >  0)   # +x = left in SMPL-X T-pose
-            right_mask = hand_mask & (verts[:, 0] <= 0)
-            w[left_mask]  = 0.0;  w[left_mask,  20] = 1.0  # left_wrist
-            w[right_mask] = 0.0;  w[right_mask, 21] = 1.0  # right_wrist
+        jpos  = np.asarray(joint_positions, dtype=np.float32)  # (22, 3)
+        problem = np.where(w.sum(axis=1) < 0.3)[0]             # row indices
+        if len(problem):
+            dists = np.linalg.norm(
+                verts[problem, None, :] - jpos[None, :, :], axis=2
+            )                                                   # (M, 22)
+            nearest = dists.argmin(axis=1)                      # (M,)
+            w[problem] = 0.0
+            w[problem, nearest] = 1.0
 
-    top4 = np.argsort(w, axis=1)[:, -4:][:, ::-1]          # (N, 4) descending
+    top4 = np.argsort(w, axis=1)[:, -4:][:, ::-1]              # (N, 4) descending
     gathered = np.take_along_axis(w, top4, axis=1)
     row_sum = gathered.sum(axis=1, keepdims=True)
-    gathered /= np.where(row_sum < 1e-6, 1.0, row_sum)     # renormalize
+    gathered /= np.where(row_sum < 1e-6, 1.0, row_sum)         # renormalize
     return top4.astype(np.uint16), gathered.astype(np.float32)
 
 
@@ -161,7 +163,7 @@ def export_skinned_glb(vertices, faces, joints_world, lbs_weights) -> str:
     normals /= np.where(nlen < 1e-8, 1.0, nlen)
     normals = normals.astype(np.float32)
 
-    j_idx, j_wt = _top4_weights(lbsw, verts)
+    j_idx, j_wt = _top4_weights(lbsw, verts, jpos)
     inv_binds = np.stack([_col_major_inv_bind(jpos[j]) for j in range(N_JOINTS)])
 
     bin_blob, offsets = _pack(verts, normals, tris, j_idx, j_wt, inv_binds)
