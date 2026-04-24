@@ -1,13 +1,3 @@
-/**
- * Drives an SMPL-X/VRM skeleton from MediaPipe world landmarks each frame.
- *
- * Approach: swing decomposition — for each bone, compute the quaternion
- * that rotates the T-pose rest direction to the observed direction, then
- * convert world→local by removing the parent's accumulated world rotation.
- *
- * Bones are processed parent-first so world matrices stay consistent.
- */
-
 import * as THREE from "three";
 import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
 
@@ -24,9 +14,13 @@ const MP = {
   LEFT_FOOT: 31,     RIGHT_FOOT: 32,
 } as const;
 
+const VISIBILITY_THRESHOLD = 0.6;
+
+// Reject bone updates where the quaternion delta exceeds this angle (radians).
+// Prevents shoulder-pop singularities from flipping the arm 180° in one frame.
+const MAX_DELTA_HALF_ANGLE_COS = Math.cos(1.2 / 2); // ~69° total rotation
+
 // ── Rest directions in SMPL-X T-pose world space (measured, y-up, person faces +z) ──
-// These are the actual directions each bone points when all joint rotations = identity.
-// Using these exact values means the avatar is in T-pose when the person stands in T-pose.
 const R = (x: number, y: number, z: number) =>
   new THREE.Vector3(x, y, z).normalize();
 
@@ -48,41 +42,44 @@ const REST: Record<string, THREE.Vector3> = {
   RightLowerLeg: R( 0.04, -1.00, -0.05),
 };
 
-// ── Bone config: which landmark pair defines each bone's direction ─────────────
-// Ordered parent-first so each bone's parent world matrix is current when we process it.
+// ── Bone config ───────────────────────────────────────────────────────────────
 type BoneCfg = {
   name: string;
-  from: number; // parent landmark index
-  to:   number; // child landmark index
+  from: number;
+  to:   number;
+  // Landmarks checked for visibility; defaults to [from, to]
+  vis?: number[];
 };
 
 const BONE_CFGS: BoneCfg[] = [
-  // Spine chain — use shoulder midpoint vs hip midpoint for each segment
-  // (approximation: all spine segments share the same observed direction)
-  { name: "Spine",         from: MP.LEFT_HIP,      to: MP.LEFT_SHOULDER  },  // replaced with midpoint below
-  { name: "Chest",         from: MP.LEFT_HIP,      to: MP.LEFT_SHOULDER  },
-  { name: "UpperChest",    from: MP.LEFT_HIP,      to: MP.LEFT_SHOULDER  },
+  // Spine chain — use hip/shoulder midpoints (overridden below); check all 4
+  { name: "Spine",         from: MP.LEFT_HIP,      to: MP.LEFT_SHOULDER,  vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
+  { name: "Chest",         from: MP.LEFT_HIP,      to: MP.LEFT_SHOULDER,  vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
+  { name: "UpperChest",    from: MP.LEFT_HIP,      to: MP.LEFT_SHOULDER,  vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
 
-  { name: "Neck",          from: MP.LEFT_SHOULDER, to: MP.LEFT_EAR       },
-  { name: "Head",          from: MP.LEFT_EAR,      to: MP.NOSE           },
+  { name: "Neck",          from: MP.LEFT_SHOULDER, to: MP.LEFT_EAR,       vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.LEFT_EAR, MP.RIGHT_EAR] },
+  { name: "Head",          from: MP.LEFT_EAR,      to: MP.NOSE,           vis: [MP.LEFT_EAR, MP.RIGHT_EAR, MP.NOSE] },
 
   // Legs
-  { name: "LeftUpperLeg",  from: MP.LEFT_HIP,      to: MP.LEFT_KNEE      },
-  { name: "LeftLowerLeg",  from: MP.LEFT_KNEE,     to: MP.LEFT_ANKLE     },
-  { name: "RightUpperLeg", from: MP.RIGHT_HIP,     to: MP.RIGHT_KNEE     },
-  { name: "RightLowerLeg", from: MP.RIGHT_KNEE,    to: MP.RIGHT_ANKLE    },
+  { name: "LeftUpperLeg",  from: MP.LEFT_HIP,    to: MP.LEFT_KNEE   },
+  { name: "LeftLowerLeg",  from: MP.LEFT_KNEE,   to: MP.LEFT_ANKLE  },
+  { name: "RightUpperLeg", from: MP.RIGHT_HIP,   to: MP.RIGHT_KNEE  },
+  { name: "RightLowerLeg", from: MP.RIGHT_KNEE,  to: MP.RIGHT_ANKLE },
 
   // Arms
-  { name: "LeftUpperArm",  from: MP.LEFT_SHOULDER, to: MP.LEFT_ELBOW     },
-  { name: "LeftLowerArm",  from: MP.LEFT_ELBOW,    to: MP.LEFT_WRIST     },
-  { name: "RightUpperArm", from: MP.RIGHT_SHOULDER,to: MP.RIGHT_ELBOW    },
-  { name: "RightLowerArm", from: MP.RIGHT_ELBOW,   to: MP.RIGHT_WRIST    },
+  { name: "LeftUpperArm",  from: MP.LEFT_SHOULDER,  to: MP.LEFT_ELBOW  },
+  { name: "LeftLowerArm",  from: MP.LEFT_ELBOW,     to: MP.LEFT_WRIST  },
+  { name: "RightUpperArm", from: MP.RIGHT_SHOULDER, to: MP.RIGHT_ELBOW },
+  { name: "RightLowerArm", from: MP.RIGHT_ELBOW,    to: MP.RIGHT_WRIST },
 ];
 
-// Bones that use the spine midpoint direction (hip midpoint → shoulder midpoint)
 const SPINE_BONES = new Set(["Spine", "Chest", "UpperChest"]);
-// Bones that use the neck midpoint (shoulder midpoint → ear midpoint)
-const NECK_BONES = new Set(["Neck"]);
+const NECK_BONES  = new Set(["Neck"]);
+
+// ── Module-level state ────────────────────────────────────────────────────────
+
+// Persists across frames; used for hysteresis check
+const _prevBoneQ = new Map<string, THREE.Quaternion>();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -90,6 +87,17 @@ const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
+const _localQ = new THREE.Quaternion();
+const _parentWorldQ = new THREE.Quaternion();
+const _worldQ = new THREE.Quaternion();
+
+function landmarkOk(lms: PoseLandmarks, idx: number): boolean {
+  return (lms[idx]?.visibility ?? 0) >= VISIBILITY_THRESHOLD;
+}
+
+function allVisible(lms: PoseLandmarks, indices: number[]): boolean {
+  return indices.every((i) => landmarkOk(lms, i));
+}
 
 function midpoint(lms: PoseLandmarks, a: number, b: number): THREE.Vector3 {
   return new THREE.Vector3(
@@ -109,54 +117,74 @@ function midDir(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3 {
   return _v2.clone();
 }
 
+// Apply x-flip for mirror mode (returns new array so original is untouched)
+function mirrorLandmarks(lms: PoseLandmarks): PoseLandmarks {
+  return lms.map((lm) => ({ ...lm, x: -lm.x }));
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
-const _parentWorldQ = new THREE.Quaternion();
-const _worldQ       = new THREE.Quaternion();
-const _localQ       = new THREE.Quaternion();
+export function driveSkeleton(
+  skeleton: THREE.Skeleton,
+  lms: PoseLandmarks,
+  mirror = true,
+): void {
+  const src = mirror ? mirrorLandmarks(lms) : lms;
 
-export function driveSkeleton(skeleton: THREE.Skeleton, lms: PoseLandmarks): void {
-  // Build bone name → THREE.Bone map
   const bones: Map<string, THREE.Bone> = new Map();
   skeleton.bones.forEach((b) => bones.set(b.name, b));
 
-  // Precompute midpoints used by spine/neck
-  const hipMid      = midpoint(lms, MP.LEFT_HIP,      MP.RIGHT_HIP);
-  const shoulderMid = midpoint(lms, MP.LEFT_SHOULDER,  MP.RIGHT_SHOULDER);
-  const earMid      = midpoint(lms, MP.LEFT_EAR,       MP.RIGHT_EAR);
+  const hipMid      = midpoint(src, MP.LEFT_HIP,      MP.RIGHT_HIP);
+  const shoulderMid = midpoint(src, MP.LEFT_SHOULDER,  MP.RIGHT_SHOULDER);
+  const earMid      = midpoint(src, MP.LEFT_EAR,       MP.RIGHT_EAR);
   const spineDir    = midDir(hipMid, shoulderMid);
   const neckDir     = midDir(shoulderMid, earMid);
 
   for (const cfg of BONE_CFGS) {
-    const bone = bones.get(cfg.name);
+    const bone    = bones.get(cfg.name);
     const restDir = REST[cfg.name];
     if (!bone || !restDir) continue;
 
-    // 1. Observed direction (world space)
-    let observed: THREE.Vector3;
-    if (SPINE_BONES.has(cfg.name)) {
-      observed = spineDir;
-    } else if (NECK_BONES.has(cfg.name)) {
-      observed = neckDir;
-    } else {
-      observed = lmDir(lms, cfg.from, cfg.to);
-    }
+    // 1. Visibility gate — skip bone if key landmarks are occluded
+    const visIndices = cfg.vis ?? [cfg.from, cfg.to];
+    if (!allVisible(src, visIndices)) continue;
 
-    // 2. World rotation: maps T-pose rest direction → observed direction
+    // 2. Observed direction (world space)
+    let observed: THREE.Vector3;
+    if (SPINE_BONES.has(cfg.name))     observed = spineDir;
+    else if (NECK_BONES.has(cfg.name)) observed = neckDir;
+    else                               observed = lmDir(src, cfg.from, cfg.to);
+
+    // 3. World rotation: T-pose rest → observed
     _worldQ.setFromUnitVectors(restDir, observed);
 
-    // 3. Parent world quaternion (requires parent world matrix to be current)
+    // 4. Convert to local space
     _parentWorldQ.identity();
-    if (bone.parent) {
-      bone.parent.getWorldQuaternion(_parentWorldQ);
-    }
-
-    // 4. Local rotation = parentWorldQ⁻¹ × worldQ
+    if (bone.parent) bone.parent.getWorldQuaternion(_parentWorldQ);
     _q1.copy(_parentWorldQ).invert();
     _localQ.multiplyQuaternions(_q1, _worldQ);
 
-    // 5. SLERP toward target (smooths residual jitter after landmark filtering)
+    // 5. Hysteresis — reject frame if delta > MAX_DELTA (catches shoulder-pop singularities)
+    const prev = _prevBoneQ.get(cfg.name);
+    if (prev) {
+      // |dot| of two unit quaternions = cos(half the angle between them)
+      const absDot = Math.abs(prev.dot(_localQ));
+      if (absDot < MAX_DELTA_HALF_ANGLE_COS) {
+        // Delta too large — hold previous value, don't update
+        continue;
+      }
+    }
+    // Store current as prev for next frame (before SLERP so we track target, not smoothed value)
+    if (!_prevBoneQ.has(cfg.name)) _prevBoneQ.set(cfg.name, new THREE.Quaternion());
+    _prevBoneQ.get(cfg.name)!.copy(_localQ);
+
+    // 6. SLERP toward target
     bone.quaternion.slerp(_localQ, 0.35);
     bone.updateWorldMatrix(false, false);
   }
+}
+
+// Call when webcam stops so stale prev-quats don't block the next session
+export function resetSkeletonDriverState(): void {
+  _prevBoneQ.clear();
 }

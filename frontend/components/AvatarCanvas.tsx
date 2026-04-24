@@ -12,6 +12,7 @@ type Props = {
   glbUrl: string | null;
   loading: boolean;
   landmarksRef: RefObject<PoseLandmarks | null>;
+  mirrorRef: RefObject<boolean>;
 };
 
 const BODY_MATERIAL = new THREE.MeshStandardMaterial({
@@ -25,9 +26,10 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
 type AvatarProps = {
   url: string;
   landmarksRef: RefObject<PoseLandmarks | null>;
+  mirrorRef: RefObject<boolean>;
 };
 
-function Avatar({ url, landmarksRef }: AvatarProps) {
+function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
   const { scene } = useGLTF(url);
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
 
@@ -47,7 +49,7 @@ function Avatar({ url, landmarksRef }: AvatarProps) {
     const lms = landmarksRef.current;
     const sk  = skeletonRef.current;
     if (!lms || !sk || lms.length < 33) return;
-    driveSkeleton(sk, lms);
+    driveSkeleton(sk, lms, mirrorRef.current);
   });
 
   return (
@@ -92,7 +94,7 @@ function PlaceholderFigure() {
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
-export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
+export default function AvatarCanvas({ glbUrl, loading, landmarksRef, mirrorRef }: Props) {
   return (
     <div className="relative w-full h-full">
       <Canvas
@@ -106,7 +108,7 @@ export default function AvatarCanvas({ glbUrl, loading, landmarksRef }: Props) {
 
         {glbUrl ? (
           <Suspense fallback={null}>
-            <Avatar key={glbUrl} url={glbUrl} landmarksRef={landmarksRef} />
+            <Avatar key={glbUrl} url={glbUrl} landmarksRef={landmarksRef} mirrorRef={mirrorRef} />
           </Suspense>
         ) : (
           <Center>

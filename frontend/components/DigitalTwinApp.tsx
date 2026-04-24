@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import UploadForm from "./UploadForm";
 import AvatarViewer from "./AvatarViewer";
 import MeasurementsPanel from "./MeasurementsPanel";
 import { runPipeline } from "@/lib/api";
 import { usePoseLandmarker } from "@/hooks/usePoseLandmarker";
+import { resetSkeletonDriverState } from "@/lib/poseSolver";
 
 type Status = "idle" | "loading" | "done" | "error";
 
@@ -18,6 +19,19 @@ export default function DigitalTwinApp() {
 
   const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, start: startWebcam, stop: stopWebcam } =
     usePoseLandmarker();
+
+  const [mirrorMode, setMirrorMode] = useState(true);
+  const mirrorRef = useRef(true);
+
+  function toggleMirror() {
+    mirrorRef.current = !mirrorRef.current;
+    setMirrorMode(mirrorRef.current);
+  }
+
+  function handleStopWebcam() {
+    stopWebcam();
+    resetSkeletonDriverState();
+  }
 
   async function handleSubmit(file: File, heightCm: number) {
     setStatus("loading");
@@ -57,7 +71,7 @@ export default function DigitalTwinApp() {
           error={error}
         />
 
-        {/* Webcam toggle — only shown once an avatar exists */}
+        {/* Webcam controls — only shown once an avatar exists */}
         {hasAvatar && (
           <div className="flex flex-col gap-2 border-t border-zinc-800 pt-5">
             <div className="flex items-center justify-between">
@@ -71,7 +85,7 @@ export default function DigitalTwinApp() {
             </div>
 
             <button
-              onClick={webcamActive ? stopWebcam : startWebcam}
+              onClick={webcamActive ? handleStopWebcam : startWebcam}
               disabled={!mpReady}
               className="w-full py-3 rounded-lg font-medium text-sm transition-colors
                 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-white"
@@ -81,6 +95,15 @@ export default function DigitalTwinApp() {
                 : webcamActive
                 ? "⏹ Stop webcam"
                 : "▶ Start webcam mirror"}
+            </button>
+
+            {/* Mirror mode toggle */}
+            <button
+              onClick={toggleMirror}
+              className="w-full py-2 rounded-lg text-sm transition-colors
+                border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200"
+            >
+              {mirrorMode ? "Mirror: ON" : "Mirror: OFF"}
             </button>
 
             {mpError && (
@@ -97,6 +120,7 @@ export default function DigitalTwinApp() {
             glbUrl={glbUrl}
             loading={loading}
             landmarksRef={landmarksRef}
+            mirrorRef={mirrorRef}
           />
         </div>
 
