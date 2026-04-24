@@ -1,3 +1,15 @@
+---
+title: Digital Twin
+emoji: 🧍
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: "6.13.0"
+python_version: "3.11"
+app_file: app.py
+pinned: false
+---
+
 # digital-twin
 
 > Upload a photo + enter your height → get a fitted 3D body mesh + 6 body measurements.
