@@ -40,10 +40,7 @@ export function usePoseLandmarker() {
         );
         const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
         const lm = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: MODEL_URL,
-            delegate: "GPU",
-          },
+          baseOptions: { modelAssetPath: MODEL_URL },
           runningMode: "VIDEO",
           numPoses: 1,
           outputSegmentationMasks: false,
@@ -83,7 +80,7 @@ export function usePoseLandmarker() {
         if (!video || !lm) return;
 
         const ts = performance.now();
-        if (ts !== lastTs) {
+        if (ts !== lastTs && video.readyState >= 2) {
           // detectForVideo requires strictly increasing timestamps
           lastTs = ts;
           const result = lm.detectForVideo(video, ts);
