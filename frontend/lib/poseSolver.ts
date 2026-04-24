@@ -92,7 +92,9 @@ const _parentWorldQ = new THREE.Quaternion();
 const _worldQ = new THREE.Quaternion();
 
 function landmarkOk(lms: PoseLandmarks, idx: number): boolean {
-  return (lms[idx]?.visibility ?? 0) >= VISIBILITY_THRESHOLD;
+  const vis = lms[idx]?.visibility;
+  // worldLandmarks visibility is optional — absent means the model didn't score it, treat as visible
+  return vis === undefined || vis >= VISIBILITY_THRESHOLD;
 }
 
 function allVisible(lms: PoseLandmarks, indices: number[]): boolean {
