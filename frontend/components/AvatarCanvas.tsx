@@ -34,20 +34,27 @@ function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
 
   useMemo(() => {
+    const names: string[] = [];
     scene.traverse((obj) => {
       if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
         const sm = obj as THREE.SkinnedMesh;
         sm.material = BODY_MATERIAL;
         sm.castShadow = true;
         skeletonRef.current = sm.skeleton;
+        names.push(...sm.skeleton.bones.map((b) => b.name));
       }
     });
+    console.log("[Avatar] skeleton bones:", names.length ? names : "NONE — not a SkinnedMesh");
   }, [scene]);
 
-  // Drive bones every frame from MediaPipe world landmarks
+  const frameCount = useRef(0);
   useFrame(() => {
     const lms = landmarksRef.current;
     const sk  = skeletonRef.current;
+    // Log once per second (~60 frames) to avoid spam
+    if (frameCount.current++ % 60 === 0) {
+      console.log("[Avatar] frame — lms:", lms ? lms.length : "null", "sk:", sk ? sk.bones.length + " bones" : "null");
+    }
     if (!lms || !sk || lms.length < 33) return;
     driveSkeleton(sk, lms, mirrorRef.current);
   });
