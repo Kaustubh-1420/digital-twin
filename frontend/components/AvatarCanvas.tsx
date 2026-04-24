@@ -34,9 +34,7 @@ function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
 
   useMemo(() => {
-    const all: string[] = [];
     scene.traverse((obj) => {
-      all.push(`${obj.constructor.name}:"${obj.name}"`);
       if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
         const sm = obj as THREE.SkinnedMesh;
         sm.material = BODY_MATERIAL;
@@ -44,18 +42,11 @@ function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
         skeletonRef.current = sm.skeleton;
       }
     });
-    console.log("[Avatar] scene objects:", all);
-    console.log("[Avatar] skeleton:", skeletonRef.current ? skeletonRef.current.bones.map(b => b.name) : "NULL");
   }, [scene]);
 
-  const frameCount = useRef(0);
   useFrame(() => {
     const lms = landmarksRef.current;
     const sk  = skeletonRef.current;
-    // Log once per second (~60 frames) to avoid spam
-    if (frameCount.current++ % 60 === 0) {
-      console.log("[Avatar] frame — lms:", lms ? lms.length : "null", "sk:", sk ? sk.bones.length + " bones" : "null");
-    }
     if (!lms || !sk || lms.length < 33) return;
     driveSkeleton(sk, lms, mirrorRef.current);
   });
