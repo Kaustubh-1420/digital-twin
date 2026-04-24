@@ -55,9 +55,9 @@ type BoneCfg = {
 
 // Normal mode: anatomical — your left arm drives avatar's left arm.
 const BONE_CFGS: BoneCfg[] = [
+  // Only drive Spine for the trunk — Chest/UpperChest inherit and stay in bind pose.
+  // Driving all three compounds rotations and destroys the mesh.
   { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
-  { name: "Chest",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
-  { name: "UpperChest", from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
   { name: "Neck",       from: MP.LEFT_SHOULDER, to: MP.LEFT_EAR,  vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.LEFT_EAR, MP.RIGHT_EAR] },
   { name: "Head",       from: MP.LEFT_EAR,      to: MP.NOSE,       vis: [MP.LEFT_EAR, MP.RIGHT_EAR, MP.NOSE] },
 
@@ -77,8 +77,6 @@ const BONE_CFGS: BoneCfg[] = [
 // of the screen), matching the natural selfie-cam experience.
 const BONE_CFGS_MIRROR: BoneCfg[] = [
   { name: "Spine",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
-  { name: "Chest",      from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
-  { name: "UpperChest", from: MP.LEFT_HIP, to: MP.LEFT_SHOULDER, vis: [MP.LEFT_HIP, MP.RIGHT_HIP, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER] },
   { name: "Neck",       from: MP.LEFT_SHOULDER, to: MP.LEFT_EAR,  vis: [MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER, MP.LEFT_EAR, MP.RIGHT_EAR] },
   { name: "Head",       from: MP.LEFT_EAR,      to: MP.NOSE,       vis: [MP.LEFT_EAR, MP.RIGHT_EAR, MP.NOSE] },
 
@@ -95,7 +93,7 @@ const BONE_CFGS_MIRROR: BoneCfg[] = [
   { name: "RightLowerArm", from: MP.LEFT_ELBOW,     to: MP.LEFT_WRIST,  vis: [MP.LEFT_ELBOW, MP.LEFT_WRIST]    },
 ];
 
-const SPINE_BONES = new Set(["Spine", "Chest", "UpperChest"]);
+const SPINE_BONES = new Set(["Spine"]);
 const NECK_BONES  = new Set(["Neck"]);
 
 // ── Module-level state ────────────────────────────────────────────────────────
@@ -145,14 +143,21 @@ export function driveSkeleton(
   lms: PoseLandmarks,
   mirror = false,
 ): void {
+  // MediaPipe world landmarks: Y-down, Z-into-screen (OpenCV/camera convention).
+  // SMPL-X rest directions: Y-up, Z-toward-viewer (OpenGL convention).
+  // Negate Y and Z to align the two spaces.
+  const src: PoseLandmarks = lms.map(lm => ({
+    x: lm.x, y: -lm.y, z: -lm.z, visibility: lm.visibility,
+  }));
+
   const cfgs = mirror ? BONE_CFGS_MIRROR : BONE_CFGS;
 
   const bones: Map<string, THREE.Bone> = new Map();
   skeleton.bones.forEach((b) => bones.set(b.name, b));
 
-  const hipMid      = midpoint(lms, MP.LEFT_HIP,      MP.RIGHT_HIP);
-  const shoulderMid = midpoint(lms, MP.LEFT_SHOULDER,  MP.RIGHT_SHOULDER);
-  const earMid      = midpoint(lms, MP.LEFT_EAR,       MP.RIGHT_EAR);
+  const hipMid      = midpoint(src, MP.LEFT_HIP,      MP.RIGHT_HIP);
+  const shoulderMid = midpoint(src, MP.LEFT_SHOULDER,  MP.RIGHT_SHOULDER);
+  const earMid      = midpoint(src, MP.LEFT_EAR,       MP.RIGHT_EAR);
   const spineDir    = midDir(hipMid, shoulderMid);
   const neckDir     = midDir(shoulderMid, earMid);
 
@@ -162,12 +167,12 @@ export function driveSkeleton(
     if (!bone || !restDir) continue;
 
     const visIndices = cfg.vis ?? [cfg.from, cfg.to];
-    if (!allVisible(lms, visIndices)) continue;
+    if (!allVisible(src, visIndices)) continue;
 
     let observed: THREE.Vector3;
     if (SPINE_BONES.has(cfg.name))     observed = spineDir;
     else if (NECK_BONES.has(cfg.name)) observed = neckDir;
-    else                               observed = lmDir(lms, cfg.from, cfg.to);
+    else                               observed = lmDir(src, cfg.from, cfg.to);
 
     _worldQ.setFromUnitVectors(restDir, observed);
 
