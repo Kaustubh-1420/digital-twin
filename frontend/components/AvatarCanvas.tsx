@@ -31,7 +31,7 @@ const CAM_SHOULDER_REF   = 0.10;
 const CAM_PAN_SCALE      = 2.5;
 const CAM_LERP           = 0.07;
 const VIS_THRESHOLD      = 0.3;
-const CAM_LOOKAT_Y_CLOSE = 0.8;
+const CAM_LOOKAT_Y_CLOSE = 0.2;
 const CAM_LOOKAT_Y_FAR   = 0.0;
 
 // ── Virtual room ──────────────────────────────────────────────────────────────
