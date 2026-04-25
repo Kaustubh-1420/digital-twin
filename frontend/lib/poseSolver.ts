@@ -21,7 +21,7 @@ const MP = {
   LEFT_FOOT: 31,     RIGHT_FOOT: 32,
 } as const;
 
-const VISIBILITY_THRESHOLD = 0.45;
+const VISIBILITY_THRESHOLD = 0.35;
 
 // ── Rest directions ───────────────────────────────────────────────────────────
 // MediaPipe world landmarks are Y-UP (hip-centred, metric). No coordinate
@@ -32,10 +32,9 @@ const R = (x: number, y: number, z: number) =>
 
 const REST: Record<string, THREE.Vector3> = {
   Spine:         R( 0,     1,     0),
-  // Neutral "facing camera" direction: nose is as far in front of shoulders
-  // as it is above them (sitting at a webcam). R(0,1,0) causes a constant
-  // ~30° forward bow. R(0,1,1) matches the actual neutral observed direction.
-  Neck:          R( 0,     1,     1),
+  // Calibrated from neutral-pose obsLocal across upright sitting frames.
+  // (0,0.75,0.65) ≈ average obsLocal when spine lean is minimal.
+  Neck:          R( 0,  0.75,  0.65),
   LeftUpperArm:  R( 0.99, -0.13,  0),
   RightUpperArm: R(-0.99, -0.13,  0),
   LeftLowerArm:  R( 1,     0,     0),
@@ -101,6 +100,11 @@ const _v1 = new THREE.Vector3();   // scratch: observed in parent-local space
 const _q1 = new THREE.Quaternion(); // scratch: parentWorldQ.inverse
 const _localQ = new THREE.Quaternion();
 const _parentWorldQ = new THREE.Quaternion();
+// Ear-twist scratch (avoids GC in hot loop)
+const _earVec   = new THREE.Vector3();
+const _earPerp  = new THREE.Vector3();
+const _swingRight = new THREE.Vector3();
+const _twistQ   = new THREE.Quaternion();
 
 function landmarkOk(lms: PoseLandmarks, idx: number): boolean {
   const vis = lms[idx]?.visibility;
@@ -219,10 +223,34 @@ export function driveSkeleton(
       );
     }
 
+    // Ear-based twist for Neck: adds Y-axis (look left/right) rotation that
+    // swing-only decomp loses because nosePos arc from shoulderMid is compressed.
+    if (NECK_BONES.has(cfg.name) &&
+        landmarkOk(src, MP.LEFT_EAR) && landmarkOk(src, MP.RIGHT_EAR)) {
+      // earVec = leftEar - rightEar in parent-local space
+      _earVec.set(
+        src[MP.LEFT_EAR].x - src[MP.RIGHT_EAR].x,
+        src[MP.LEFT_EAR].y - src[MP.RIGHT_EAR].y,
+        src[MP.LEFT_EAR].z - src[MP.RIGHT_EAR].z,
+      ).normalize().applyQuaternion(_q1);
+
+      // Project onto plane perpendicular to neckDirLocal (_v1)
+      const earDotNeck = _earVec.dot(_v1);
+      _earPerp.copy(_earVec).addScaledVector(_v1, -earDotNeck);
+      const earPerpLen = _earPerp.length();
+      if (earPerpLen > 0.1) {
+        _earPerp.divideScalar(earPerpLen);
+        // Bone's "right" axis after swing
+        _swingRight.set(1, 0, 0).applyQuaternion(_localQ);
+        _twistQ.setFromUnitVectors(_swingRight, _earPerp);
+        _localQ.premultiply(_twistQ);
+      }
+    }
+
     if (!_prevBoneQ.has(cfg.name)) _prevBoneQ.set(cfg.name, new THREE.Quaternion());
     _prevBoneQ.get(cfg.name)!.copy(_localQ);
 
-    bone.quaternion.slerp(_localQ, 0.35);
+    bone.quaternion.slerp(_localQ, 0.5);
     bone.updateWorldMatrix(false, false);
   }
 }
