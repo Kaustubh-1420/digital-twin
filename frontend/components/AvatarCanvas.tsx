@@ -25,7 +25,7 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
 
 // Camera tuning
 const CAM_BASE_Z         = 3.0;
-const CAM_MIN_Z          = 0.6;
+const CAM_MIN_Z          = 0.3;
 const CAM_MAX_Z          = 6.0;
 const CAM_SHOULDER_REF   = 0.25;
 const CAM_PAN_SCALE      = 2.5;
@@ -42,32 +42,32 @@ function Room() {
       {/* Floor */}
       <mesh position={[0, -0.91, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[14, 10]} />
-        <meshStandardMaterial color="#111118" roughness={0.85} metalness={0.08} />
+        <meshStandardMaterial color="#1a1a28" roughness={0.85} metalness={0.1} />
       </mesh>
       {/* Back wall */}
       <mesh position={[0, 1.5, -3]} receiveShadow>
         <planeGeometry args={[14, 8]} />
-        <meshStandardMaterial color="#1a1a2e" roughness={0.9} />
+        <meshStandardMaterial color="#2e2e50" roughness={0.9} />
       </mesh>
       {/* Left wall */}
       <mesh position={[-5, 1.5, 0]} rotation={[0, Math.PI / 2, 0]} receiveShadow>
         <planeGeometry args={[10, 8]} />
-        <meshStandardMaterial color="#16162a" roughness={0.9} />
+        <meshStandardMaterial color="#272742" roughness={0.9} />
       </mesh>
       {/* Right wall */}
       <mesh position={[5, 1.5, 0]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
         <planeGeometry args={[10, 8]} />
-        <meshStandardMaterial color="#16162a" roughness={0.9} />
+        <meshStandardMaterial color="#272742" roughness={0.9} />
       </mesh>
-      {/* Simple prop — low box on the left (like a cabinet) */}
+      {/* Simple prop — low box left */}
       <mesh position={[-3.2, -0.35, -2.5]} castShadow receiveShadow>
         <boxGeometry args={[1.2, 1.1, 0.5]} />
-        <meshStandardMaterial color="#12121f" roughness={0.8} />
+        <meshStandardMaterial color="#1e1e38" roughness={0.8} />
       </mesh>
-      {/* Simple prop — taller box on the right (like a shelf unit) */}
+      {/* Simple prop — taller box right */}
       <mesh position={[3.4, 0.2, -2.6]} castShadow receiveShadow>
         <boxGeometry args={[0.9, 2.2, 0.45]} />
-        <meshStandardMaterial color="#12121f" roughness={0.8} />
+        <meshStandardMaterial color="#1e1e38" roughness={0.8} />
       </mesh>
     </group>
   );
@@ -199,9 +199,11 @@ export default function AvatarCanvas({
         style={{ background: "#09090b" }}
         shadows
       >
-        <ambientLight intensity={0.4} />
+        <ambientLight intensity={0.6} />
         <directionalLight position={[2, 4, 2]} intensity={1.2} castShadow />
         <directionalLight position={[-2, 2, -1]} intensity={0.4} />
+        {/* Fill light facing back wall so it's visible from camera */}
+        <directionalLight position={[0, 2, 4]} intensity={0.7} />
         <pointLight position={[0, 3, 1]} intensity={0.6} color="#7c6cff" />
 
         <Room />
