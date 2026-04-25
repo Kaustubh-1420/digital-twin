@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useMemo, useRef } from "react";
+import { Suspense, useMemo, useRef, useEffect } from "react";
 import type { RefObject } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
 import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
@@ -14,6 +14,7 @@ type Props = {
   landmarksRef: RefObject<PoseLandmarks | null>;
   normLandmarksRef: RefObject<PoseLandmarks | null>;
   mirrorRef: RefObject<boolean>;
+  webcamActive: boolean;
 };
 
 const BODY_MATERIAL = new THREE.MeshStandardMaterial({
@@ -22,28 +23,32 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
   metalness: 0.05,
 });
 
-// ── Avatar (with skeleton driving) ───────────────────────────────────────────
+// Camera constants — tune these if zoom/pan feel off
+const CAM_BASE_Z        = 3.0;  // default camera distance
+const CAM_MIN_Z         = 1.5;  // closest zoom (face filling frame)
+const CAM_MAX_Z         = 6.0;  // farthest zoom (full body + floor)
+const CAM_SHOULDER_REF  = 0.25; // shoulder width fraction at default distance
+const CAM_PAN_SCALE     = 1.5;  // how far camera pans per unit of hip offset
+const CAM_LERP          = 0.07; // smoothing (lower = more lag, less jitter)
+const CAM_LOOKAT_Y      = 0.5;  // avatar chest level
+const VIS_THRESHOLD     = 0.3;
 
-// X scale: how many Three.js units = full screen width (camera fov=50 at z=3)
-const ROOT_X_SCALE = 4.0;
-// Z scale: world landmark z is in metric (~±0.3 m range), map to scene units
-const ROOT_Z_SCALE = 2.5;
-// Lerp factor for root position smoothing (lower = smoother but laggier)
-const ROOT_LERP   = 0.12;
-// Hip visibility threshold for root translation
-const HIP_VIS_THRESHOLD = 0.45;
+// ── Avatar (with skeleton driving + mirror camera) ────────────────────���───────
 
 type AvatarProps = {
   url: string;
   landmarksRef: RefObject<PoseLandmarks | null>;
   normLandmarksRef: RefObject<PoseLandmarks | null>;
   mirrorRef: RefObject<boolean>;
+  webcamActive: boolean;
 };
 
-function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef }: AvatarProps) {
-  const { scene } = useGLTF(url);
-  const skeletonRef  = useRef<THREE.Skeleton | null>(null);
-  const rootGroupRef = useRef<THREE.Group>(null);
+const _lookAtTarget = new THREE.Vector3(0, CAM_LOOKAT_Y, 0);
+
+function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }: AvatarProps) {
+  const { scene }  = useGLTF(url);
+  const { camera } = useThree();
+  const skeletonRef = useRef<THREE.Skeleton | null>(null);
 
   useMemo(() => {
     scene.traverse((obj) => {
@@ -56,43 +61,56 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef }: AvatarProps)
     });
   }, [scene]);
 
+  // Reset camera when webcam stops
+  useEffect(() => {
+    if (!webcamActive) {
+      camera.position.set(0, 0, CAM_BASE_Z);
+      camera.lookAt(_lookAtTarget);
+    }
+  }, [webcamActive, camera]);
+
   useFrame(() => {
     const lms     = landmarksRef.current;
     const normLms = normLandmarksRef.current;
     const sk      = skeletonRef.current;
-    const root    = rootGroupRef.current;
     if (!lms || !sk || lms.length < 33) {
-      if (Math.random() < 0.01) {
+      if (Math.random() < 0.01)
         console.log("[AvatarCanvas] useFrame bail: lms=", lms ? lms.length : null, "sk=", !!sk);
-      }
       return;
     }
     driveSkeleton(sk, lms, mirrorRef.current);
 
-    // Root translation: drive avatar position from hip midpoint
-    if (root && normLms && normLms.length >= 33) {
-      const lm23 = normLms[23]; // left hip (screen-space, 0-1)
-      const lm24 = normLms[24]; // right hip
-      if ((lm23.visibility ?? 0) > HIP_VIS_THRESHOLD && (lm24.visibility ?? 0) > HIP_VIS_THRESHOLD) {
-        const hipNormX = (lm23.x + lm24.x) * 0.5;
-        // Screen x=0 is camera-left; front-facing camera → flip for natural mirroring
-        const flip = mirrorRef.current ? 1 : -1;
-        const targetX = (hipNormX - 0.5) * ROOT_X_SCALE * flip;
-        // World landmark z: negative = closer to camera → positive scene Z
-        const hipWorldZ = (lms[23].z + lms[24].z) * 0.5;
-        const targetZ = -hipWorldZ * ROOT_Z_SCALE;
-        root.position.x += (targetX - root.position.x) * ROOT_LERP;
-        root.position.z += (targetZ - root.position.z) * ROOT_LERP;
-      }
+    if (!webcamActive || !normLms || normLms.length < 33) return;
+
+    const lm11 = normLms[11]; // left shoulder
+    const lm12 = normLms[12]; // right shoulder
+    const lm23 = normLms[23]; // left hip
+    const lm24 = normLms[24]; // right hip
+
+    // ── Z zoom: shoulder width → distance ──
+    const shoulderVis = Math.min(lm11.visibility ?? 0, lm12.visibility ?? 0);
+    if (shoulderVis > VIS_THRESHOLD) {
+      const shoulderW = Math.max(0.05, Math.min(0.6, Math.abs(lm11.x - lm12.x)));
+      const targetZ   = Math.max(CAM_MIN_Z, Math.min(CAM_MAX_Z, CAM_SHOULDER_REF * CAM_BASE_Z / shoulderW));
+      camera.position.z += (targetZ - camera.position.z) * CAM_LERP;
     }
+
+    // ── X pan: follow hip midpoint to keep you centered ──
+    const hipVis = Math.min(lm23.visibility ?? 0, lm24.visibility ?? 0);
+    if (hipVis > VIS_THRESHOLD) {
+      const hipNormX = (lm23.x + lm24.x) * 0.5;
+      const flip     = mirrorRef.current ? 1 : -1;
+      const targetX  = (hipNormX - 0.5) * CAM_PAN_SCALE * flip;
+      camera.position.x += (targetX - camera.position.x) * CAM_LERP;
+    }
+
+    camera.lookAt(_lookAtTarget);
   });
 
   return (
-    <group ref={rootGroupRef}>
-      <Center>
-        <primitive object={scene} />
-      </Center>
-    </group>
+    <Center>
+      <primitive object={scene} />
+    </Center>
   );
 }
 
@@ -131,11 +149,11 @@ function PlaceholderFigure() {
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
-export default function AvatarCanvas({ glbUrl, loading, landmarksRef, normLandmarksRef, mirrorRef }: Props) {
+export default function AvatarCanvas({ glbUrl, loading, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }: Props) {
   return (
     <div className="relative w-full h-full">
       <Canvas
-        camera={{ position: [0, 0, 3], fov: 50 }}
+        camera={{ position: [0, 0, CAM_BASE_Z], fov: 50 }}
         style={{ background: "#09090b" }}
         shadows
       >
@@ -145,7 +163,14 @@ export default function AvatarCanvas({ glbUrl, loading, landmarksRef, normLandma
 
         {glbUrl ? (
           <Suspense fallback={null}>
-            <Avatar key={glbUrl} url={glbUrl} landmarksRef={landmarksRef} normLandmarksRef={normLandmarksRef} mirrorRef={mirrorRef} />
+            <Avatar
+              key={glbUrl}
+              url={glbUrl}
+              landmarksRef={landmarksRef}
+              normLandmarksRef={normLandmarksRef}
+              mirrorRef={mirrorRef}
+              webcamActive={webcamActive}
+            />
           </Suspense>
         ) : (
           <Center>
@@ -162,7 +187,7 @@ export default function AvatarCanvas({ glbUrl, loading, landmarksRef, normLandma
           fadeDistance={7}
           infiniteGrid
         />
-        <OrbitControls makeDefault />
+        <OrbitControls makeDefault enabled={!webcamActive} />
       </Canvas>
 
       {loading && (

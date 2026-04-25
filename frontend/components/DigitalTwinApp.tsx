@@ -128,6 +128,7 @@ export default function DigitalTwinApp() {
             landmarksRef={landmarksRef}
             normLandmarksRef={normLandmarksRef}
             mirrorRef={mirrorRef}
+            active={webcamActive}
           />
           <PoseOverlay
             videoRef={videoRef}
