@@ -126,6 +126,7 @@ export default function DigitalTwinApp() {
             glbUrl={glbUrl}
             loading={loading}
             landmarksRef={landmarksRef}
+            normLandmarksRef={normLandmarksRef}
             mirrorRef={mirrorRef}
           />
           <PoseOverlay

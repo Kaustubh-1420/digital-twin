@@ -12,6 +12,7 @@ type Props = {
   glbUrl: string | null;
   loading: boolean;
   landmarksRef: RefObject<PoseLandmarks | null>;
+  normLandmarksRef: RefObject<PoseLandmarks | null>;
   mirrorRef: RefObject<boolean>;
 };
 
@@ -23,15 +24,26 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
 
 // ── Avatar (with skeleton driving) ───────────────────────────────────────────
 
+// X scale: how many Three.js units = full screen width (camera fov=50 at z=3)
+const ROOT_X_SCALE = 4.0;
+// Z scale: world landmark z is in metric (~±0.3 m range), map to scene units
+const ROOT_Z_SCALE = 2.5;
+// Lerp factor for root position smoothing (lower = smoother but laggier)
+const ROOT_LERP   = 0.12;
+// Hip visibility threshold for root translation
+const HIP_VIS_THRESHOLD = 0.45;
+
 type AvatarProps = {
   url: string;
   landmarksRef: RefObject<PoseLandmarks | null>;
+  normLandmarksRef: RefObject<PoseLandmarks | null>;
   mirrorRef: RefObject<boolean>;
 };
 
-function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
+function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef }: AvatarProps) {
   const { scene } = useGLTF(url);
-  const skeletonRef = useRef<THREE.Skeleton | null>(null);
+  const skeletonRef  = useRef<THREE.Skeleton | null>(null);
+  const rootGroupRef = useRef<THREE.Group>(null);
 
   useMemo(() => {
     scene.traverse((obj) => {
@@ -45,22 +57,42 @@ function Avatar({ url, landmarksRef, mirrorRef }: AvatarProps) {
   }, [scene]);
 
   useFrame(() => {
-    const lms = landmarksRef.current;
-    const sk  = skeletonRef.current;
+    const lms     = landmarksRef.current;
+    const normLms = normLandmarksRef.current;
+    const sk      = skeletonRef.current;
+    const root    = rootGroupRef.current;
     if (!lms || !sk || lms.length < 33) {
-      // DEBUG: log why we're bailing — remove once solver is stable
       if (Math.random() < 0.01) {
         console.log("[AvatarCanvas] useFrame bail: lms=", lms ? lms.length : null, "sk=", !!sk);
       }
       return;
     }
     driveSkeleton(sk, lms, mirrorRef.current);
+
+    // Root translation: drive avatar position from hip midpoint
+    if (root && normLms && normLms.length >= 33) {
+      const lm23 = normLms[23]; // left hip (screen-space, 0-1)
+      const lm24 = normLms[24]; // right hip
+      if ((lm23.visibility ?? 0) > HIP_VIS_THRESHOLD && (lm24.visibility ?? 0) > HIP_VIS_THRESHOLD) {
+        const hipNormX = (lm23.x + lm24.x) * 0.5;
+        // Screen x=0 is camera-left; front-facing camera → flip for natural mirroring
+        const flip = mirrorRef.current ? 1 : -1;
+        const targetX = (hipNormX - 0.5) * ROOT_X_SCALE * flip;
+        // World landmark z: negative = closer to camera → positive scene Z
+        const hipWorldZ = (lms[23].z + lms[24].z) * 0.5;
+        const targetZ = -hipWorldZ * ROOT_Z_SCALE;
+        root.position.x += (targetX - root.position.x) * ROOT_LERP;
+        root.position.z += (targetZ - root.position.z) * ROOT_LERP;
+      }
+    }
   });
 
   return (
-    <Center>
-      <primitive object={scene} />
-    </Center>
+    <group ref={rootGroupRef}>
+      <Center>
+        <primitive object={scene} />
+      </Center>
+    </group>
   );
 }
 
@@ -99,7 +131,7 @@ function PlaceholderFigure() {
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
-export default function AvatarCanvas({ glbUrl, loading, landmarksRef, mirrorRef }: Props) {
+export default function AvatarCanvas({ glbUrl, loading, landmarksRef, normLandmarksRef, mirrorRef }: Props) {
   return (
     <div className="relative w-full h-full">
       <Canvas
@@ -113,7 +145,7 @@ export default function AvatarCanvas({ glbUrl, loading, landmarksRef, mirrorRef 
 
         {glbUrl ? (
           <Suspense fallback={null}>
-            <Avatar key={glbUrl} url={glbUrl} landmarksRef={landmarksRef} mirrorRef={mirrorRef} />
+            <Avatar key={glbUrl} url={glbUrl} landmarksRef={landmarksRef} normLandmarksRef={normLandmarksRef} mirrorRef={mirrorRef} />
           </Suspense>
         ) : (
           <Center>
