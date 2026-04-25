@@ -103,11 +103,12 @@ type AvatarProps = {
 };
 
 function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }: AvatarProps) {
-  const { scene, camera } = useThree();
+  const { scene: gltfScene } = useGLTF(url);
+  const { camera } = useThree();
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
 
   useMemo(() => {
-    scene.traverse((obj) => {
+    gltfScene.traverse((obj) => {
       if ((obj as THREE.SkinnedMesh).isSkinnedMesh) {
         const sm = obj as THREE.SkinnedMesh;
         sm.material = BODY_MATERIAL;
@@ -115,7 +116,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }
         skeletonRef.current = sm.skeleton;
       }
     });
-  }, [scene]);
+  }, [gltfScene]);
 
   useEffect(() => {
     if (!webcamActive) {
@@ -167,7 +168,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }
 
   return (
     <Center>
-      <primitive object={scene} />
+      <primitive object={gltfScene} />
     </Center>
   );
 }
