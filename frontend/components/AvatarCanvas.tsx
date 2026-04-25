@@ -15,7 +15,6 @@ type Props = {
   normLandmarksRef: RefObject<PoseLandmarks | null>;
   mirrorRef: RefObject<boolean>;
   webcamActive: boolean;
-  videoRef: RefObject<HTMLVideoElement | null>;
 };
 
 const BODY_MATERIAL = new THREE.MeshStandardMaterial({
@@ -25,70 +24,52 @@ const BODY_MATERIAL = new THREE.MeshStandardMaterial({
 });
 
 // Camera tuning
-const CAM_BASE_Z       = 3.0;
-const CAM_MIN_Z        = 0.6;   // close enough to show just face
-const CAM_MAX_Z        = 6.0;
-const CAM_SHOULDER_REF = 0.25;
-const CAM_PAN_SCALE    = 2.5;
-const CAM_LERP         = 0.07;
-const VIS_THRESHOLD    = 0.3;
-
-// lookAt Y interpolated from face level (close) to body center (far)
+const CAM_BASE_Z         = 3.0;
+const CAM_MIN_Z          = 0.6;
+const CAM_MAX_Z          = 6.0;
+const CAM_SHOULDER_REF   = 0.25;
+const CAM_PAN_SCALE      = 2.5;
+const CAM_LERP           = 0.07;
+const VIS_THRESHOLD      = 0.3;
 const CAM_LOOKAT_Y_CLOSE = 0.8;
 const CAM_LOOKAT_Y_FAR   = 0.0;
 
-// ── Video background plane ────────────────────────────────────────────────────
-// World-space plane behind avatar. Large enough that camera pan/zoom never
-// reveals its edges. VideoTexture maps the webcam feed onto it.
+// ── Virtual room ──────────────────────────────────────────────────────────────
 
-function VideoBackground({
-  videoRef, mirrorRef, webcamActive,
-}: {
-  videoRef: RefObject<HTMLVideoElement | null>;
-  mirrorRef: RefObject<boolean>;
-  webcamActive: boolean;
-}) {
-  const matRef     = useRef<THREE.MeshBasicMaterial>(null);
-  const textureRef = useRef<THREE.VideoTexture | null>(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    const mat   = matRef.current;
-    if (!webcamActive || !video || !mat) return;
-
-    const tex = new THREE.VideoTexture(video);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.minFilter  = THREE.LinearFilter;
-    textureRef.current = tex;
-    mat.map = tex;
-    mat.needsUpdate = true;
-
-    return () => {
-      tex.dispose();
-      textureRef.current = null;
-      if (matRef.current) {
-        matRef.current.map = null;
-        matRef.current.needsUpdate = true;
-      }
-    };
-  }, [webcamActive, videoRef]);
-
-  // Sync mirror flip every frame
-  useFrame(() => {
-    const tex = textureRef.current;
-    if (!tex) return;
-    tex.repeat.x = mirrorRef.current ? -1 : 1;
-    tex.offset.x = mirrorRef.current ? 1 : 0;
-  });
-
-  if (!webcamActive) return null;
-
+function Room() {
   return (
-    // z=-3: behind avatar (at z=0). Plane 20×12 covers view at all zoom levels.
-    <mesh position={[0, 0.5, -3]} renderOrder={-1}>
-      <planeGeometry args={[20, 12]} />
-      <meshBasicMaterial ref={matRef} depthWrite={false} />
-    </mesh>
+    <group>
+      {/* Floor */}
+      <mesh position={[0, -0.91, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[14, 10]} />
+        <meshStandardMaterial color="#111118" roughness={0.85} metalness={0.08} />
+      </mesh>
+      {/* Back wall */}
+      <mesh position={[0, 1.5, -3]} receiveShadow>
+        <planeGeometry args={[14, 8]} />
+        <meshStandardMaterial color="#1a1a2e" roughness={0.9} />
+      </mesh>
+      {/* Left wall */}
+      <mesh position={[-5, 1.5, 0]} rotation={[0, Math.PI / 2, 0]} receiveShadow>
+        <planeGeometry args={[10, 8]} />
+        <meshStandardMaterial color="#16162a" roughness={0.9} />
+      </mesh>
+      {/* Right wall */}
+      <mesh position={[5, 1.5, 0]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
+        <planeGeometry args={[10, 8]} />
+        <meshStandardMaterial color="#16162a" roughness={0.9} />
+      </mesh>
+      {/* Simple prop — low box on the left (like a cabinet) */}
+      <mesh position={[-3.2, -0.35, -2.5]} castShadow receiveShadow>
+        <boxGeometry args={[1.2, 1.1, 0.5]} />
+        <meshStandardMaterial color="#12121f" roughness={0.8} />
+      </mesh>
+      {/* Simple prop — taller box on the right (like a shelf unit) */}
+      <mesh position={[3.4, 0.2, -2.6]} castShadow receiveShadow>
+        <boxGeometry args={[0.9, 2.2, 0.45]} />
+        <meshStandardMaterial color="#12121f" roughness={0.8} />
+      </mesh>
+    </group>
   );
 }
 
@@ -160,9 +141,9 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }
       camera.position.x += (targetX - camera.position.x) * CAM_LERP;
     }
 
-    // lookAt Y: face level when close, body center when far
-    const t        = Math.max(0, Math.min(1, (camera.position.z - CAM_MIN_Z) / (CAM_MAX_Z - CAM_MIN_Z)));
-    const lookAtY  = CAM_LOOKAT_Y_CLOSE + t * (CAM_LOOKAT_Y_FAR - CAM_LOOKAT_Y_CLOSE);
+    // Dynamic lookAt: face level when close, body center when far
+    const t       = Math.max(0, Math.min(1, (camera.position.z - CAM_MIN_Z) / (CAM_MAX_Z - CAM_MIN_Z)));
+    const lookAtY = CAM_LOOKAT_Y_CLOSE + t * (CAM_LOOKAT_Y_FAR - CAM_LOOKAT_Y_CLOSE);
     camera.lookAt(0, lookAtY, 0);
   });
 
@@ -209,8 +190,7 @@ function PlaceholderFigure() {
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
 export default function AvatarCanvas({
-  glbUrl, loading, landmarksRef, normLandmarksRef,
-  mirrorRef, webcamActive, videoRef,
+  glbUrl, loading, landmarksRef, normLandmarksRef, mirrorRef, webcamActive,
 }: Props) {
   return (
     <div className="relative w-full h-full">
@@ -219,11 +199,12 @@ export default function AvatarCanvas({
         style={{ background: "#09090b" }}
         shadows
       >
-        <ambientLight intensity={0.5} />
+        <ambientLight intensity={0.4} />
         <directionalLight position={[2, 4, 2]} intensity={1.2} castShadow />
         <directionalLight position={[-2, 2, -1]} intensity={0.4} />
+        <pointLight position={[0, 3, 1]} intensity={0.6} color="#7c6cff" />
 
-        <VideoBackground videoRef={videoRef} mirrorRef={mirrorRef} webcamActive={webcamActive} />
+        <Room />
 
         {glbUrl ? (
           <Suspense fallback={null}>
@@ -246,8 +227,8 @@ export default function AvatarCanvas({
           position={[0, -0.9, 0]}
           args={[8, 8]}
           cellSize={0.5}
-          cellColor="#27272a"
-          sectionColor="#3f3f46"
+          cellColor="#1f1f30"
+          sectionColor="#2d2d44"
           fadeDistance={7}
           infiniteGrid
         />
