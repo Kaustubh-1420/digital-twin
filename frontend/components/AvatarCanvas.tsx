@@ -31,8 +31,10 @@ const CAM_SHOULDER_REF   = 0.10;
 const CAM_PAN_SCALE      = 2.5;
 const CAM_LERP           = 0.07;
 const VIS_THRESHOLD      = 0.3;
-const CAM_LOOKAT_Y_CLOSE = 0.2;
-const CAM_LOOKAT_Y_FAR   = 0.0;
+// Camera Y rises to face height when zoomed in, returns to center when far
+const CAM_Y_CLOSE        = 0.6;
+const CAM_Y_FAR          = 0.0;
+const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
 
 // ── Virtual room ──────────────────────────────────────────────────────────────
 
@@ -102,7 +104,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }
   useEffect(() => {
     if (!webcamActive) {
       camera.position.set(0, 0, CAM_BASE_Z);
-      camera.lookAt(0, 0.5, 0);
+      camera.lookAt(0, CAM_LOOKAT_Y, 0);
     }
   }, [webcamActive, camera]);
 
@@ -141,10 +143,11 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }
       camera.position.x += (targetX - camera.position.x) * CAM_LERP;
     }
 
-    // Dynamic lookAt: face level when close, body center when far
+    // Raise camera Y when close (face height) → head-on view, not worm's-eye
     const t       = Math.max(0, Math.min(1, (camera.position.z - CAM_MIN_Z) / (CAM_MAX_Z - CAM_MIN_Z)));
-    const lookAtY = CAM_LOOKAT_Y_CLOSE + t * (CAM_LOOKAT_Y_FAR - CAM_LOOKAT_Y_CLOSE);
-    camera.lookAt(0, lookAtY, 0);
+    const targetY = CAM_Y_CLOSE + t * (CAM_Y_FAR - CAM_Y_CLOSE);
+    camera.position.y += (targetY - camera.position.y) * CAM_LERP;
+    camera.lookAt(0, CAM_LOOKAT_Y, 0);
   });
 
   return (
