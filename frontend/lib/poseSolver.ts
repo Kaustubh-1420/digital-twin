@@ -1,12 +1,10 @@
 import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 
-// Toggle to see per-frame diagnostics in the browser console.
-const DEBUG_POSE = true;
+const DEBUG_POSE  = false;  // body logs — off during hand calibration
+const DEBUG_HANDS = true;   // hand logs — log obsWorld/obsLocal for key finger bones
 let _dbgFrame = 0;
-
-// Confirm this module version is loaded — remove when solver is stable
-console.log("[PoseSolver] module loaded — local-space swing decomp, y/z flip ON, threshold=0.45");
+let _dbgHandFrame = 0;
 
 // ── MediaPipe landmark indices ────────────────────────────────────────────────
 const MP = {
@@ -308,6 +306,8 @@ const RIGHT_FINGER_CFGS = _buildFingerCfgs("Right");
 
 const _prevHandBoneQ = new Map<string, THREE.Quaternion>();
 
+const _LOG_HAND_BONES = new Set(["LeftIndexProximal", "LeftMiddleProximal", "LeftThumbMetacarpal"]);
+
 function _driveOneSide(
   bones: Map<string, THREE.Bone>,
   lms: HandLandmarks,
@@ -315,6 +315,8 @@ function _driveOneSide(
 ): void {
   // Same Y-down → Y-up flip as body landmarks
   const src = lms.map(lm => ({ x: lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
+
+  const logHand = DEBUG_HANDS && (_dbgHandFrame % 60 === 0);
 
   for (const cfg of cfgs) {
     const bone = bones.get(cfg.name);
@@ -335,6 +337,16 @@ function _driveOneSide(
     _v1.set(dx/len, dy/len, dz/len).applyQuaternion(_q1);
     _localQ.setFromUnitVectors(cfg.restDir, _v1);
 
+    if (logHand && _LOG_HAND_BONES.has(cfg.name)) {
+      console.log(
+        `[HandSolver] frame=${_dbgHandFrame} ${cfg.name.padEnd(22)}`,
+        `obsWorld=(${(dx/len).toFixed(3)},${(dy/len).toFixed(3)},${(dz/len).toFixed(3)})`,
+        `obsLocal=${fv(_v1)}`,
+        `rest=${fv(cfg.restDir)}`,
+        `→ ${fq(_localQ)}`,
+      );
+    }
+
     if (!_prevHandBoneQ.has(cfg.name)) _prevHandBoneQ.set(cfg.name, new THREE.Quaternion());
     _prevHandBoneQ.get(cfg.name)!.copy(_localQ);
 
@@ -350,6 +362,9 @@ export function driveHands(
 ): void {
   const bones: Map<string, THREE.Bone> = new Map();
   skeleton.bones.forEach(b => bones.set(b.name, b));
+
+  const hasHands = (leftHandLms && leftHandLms.length >= 21) || (rightHandLms && rightHandLms.length >= 21);
+  if (hasHands) _dbgHandFrame++;
 
   if (leftHandLms  && leftHandLms.length  >= 21) _driveOneSide(bones, leftHandLms,  LEFT_FINGER_CFGS);
   if (rightHandLms && rightHandLms.length >= 21) _driveOneSide(bones, rightHandLms, RIGHT_FINGER_CFGS);
