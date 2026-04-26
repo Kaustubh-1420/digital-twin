@@ -104,6 +104,16 @@ const _earPerp  = new THREE.Vector3();
 const _swingRight = new THREE.Vector3();
 const _twistQ   = new THREE.Quaternion();
 
+// Hand bone driving scratch (separate from body/finger scratch to avoid conflicts)
+const _hForward = new THREE.Vector3();
+const _hKnuckle = new THREE.Vector3();
+const _hPalmN   = new THREE.Vector3();
+const _hSide    = new THREE.Vector3();
+const _hMat     = new THREE.Matrix4();
+const _hWorldQ  = new THREE.Quaternion();
+const _hParentQ = new THREE.Quaternion();
+const _hLocalQ  = new THREE.Quaternion();
+
 function landmarkOk(lms: PoseLandmarks, idx: number): boolean {
   const vis = lms[idx]?.visibility;
   return vis === undefined || vis >= VISIBILITY_THRESHOLD;
@@ -272,39 +282,43 @@ const HMP = {
 
 type FingerBoneCfg = { name: string; from: number; to: number; restDir: THREE.Vector3 };
 
-// Template expanded into Left/Right variants; rest = +X (left) / -X (right) for T-pose arm alignment
-const _FINGER_TEMPLATE: Array<{ finger: string; from: number; to: number; suffix: string }> = [
-  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal"   },
-  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal"     },
-  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal"       },
-  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal"     },
-  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate" },
-  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal"       },
-  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal"     },
-  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate" },
-  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal"       },
-  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal"     },
-  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate" },
-  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal"       },
-  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal"     },
-  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate" },
-  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal"       },
+// Proximal bone rests calibrated from DEBUG_HANDS obsLocal at flat open hand (left hand,
+// frames 120-240). Intermediate/Distal stay at (1,0,0) in parent-local — correct once
+// proximal is oriented. Right side mirrors X; Z kept same sign (needs separate calibration).
+// Ring/Pinky proximal Z estimated from anatomical splay pattern (index=-0.20, middle=0, ring=+0.20).
+const _FINGER_TEMPLATE: Array<{
+  finger: string; from: number; to: number; suffix: string;
+  lx: number; ly: number; lz: number;
+}> = [
+  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal",   lx: 0.46, ly: 0.62, lz: -0.64 },
+  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal",     lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal",     lx: 0.82, ly: 0.54, lz: -0.20 },
+  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal",     lx: 0.86, ly: 0.50, lz: 0     },
+  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal",     lx: 0.83, ly: 0.52, lz: 0.20  },
+  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal",     lx: 0.78, ly: 0.58, lz: 0.22  },
+  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
+  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
 ];
 
 function _buildFingerCfgs(side: "Left" | "Right"): FingerBoneCfg[] {
-  const rx = side === "Left" ? 1 : -1;
+  const sx = side === "Left" ? 1 : -1;
   return _FINGER_TEMPLATE.map(t => ({
     name:    `${side}${t.finger}${t.suffix}`,
     from:    t.from,
     to:      t.to,
-    restDir: R(rx, 0, 0),
+    restDir: R(sx * t.lx, t.ly, t.lz),
   }));
 }
 
 const LEFT_FINGER_CFGS  = _buildFingerCfgs("Left");
 const RIGHT_FINGER_CFGS = _buildFingerCfgs("Right");
-
-const _prevHandBoneQ = new Map<string, THREE.Quaternion>();
 
 const _LOG_HAND_BONES = new Set(["LeftIndexProximal", "LeftMiddleProximal", "LeftThumbMetacarpal"]);
 
@@ -312,9 +326,50 @@ function _driveOneSide(
   bones: Map<string, THREE.Bone>,
   lms: HandLandmarks,
   cfgs: FingerBoneCfg[],
+  side: "Left" | "Right",
 ): void {
   // Same Y-down → Y-up flip as body landmarks
   const src = lms.map(lm => ({ x: lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
+
+  // ── Drive Hand (wrist) bone from palm landmark frame ────────────────────────
+  // Must run BEFORE finger loop so finger bones see correct parentWorldQ.
+  // Wrist landmark = src[0], middle_mcp = src[9], index_mcp = src[5], pinky_mcp = src[17].
+  const handBone = bones.get(`${side}Hand`);
+  if (handBone) {
+    // forward: wrist → middle_mcp — the primary finger direction
+    _hForward.set(
+      src[9].x - src[0].x,
+      src[9].y - src[0].y,
+      src[9].z - src[0].z,
+    ).normalize();
+
+    // knuckleLine: index_mcp - pinky_mcp (left) or pinky_mcp - index_mcp (right)
+    // Nearly ⊥ to forward → stable cross product for palm normal.
+    // Sign flips per hand so palm normal consistently points out of palm.
+    const ks = side === "Left" ? 1 : -1;
+    _hKnuckle.set(
+      ks * (src[5].x - src[17].x),
+      ks * (src[5].y - src[17].y),
+      ks * (src[5].z - src[17].z),
+    );
+
+    // palmNormal = knuckleLine × forward — perpendicular to palm surface
+    _hPalmN.crossVectors(_hKnuckle, _hForward).normalize();
+    // Gram-Schmidt: sideAxis guaranteed ⊥ to both forward and palmNormal
+    _hSide.crossVectors(_hForward, _hPalmN).normalize();
+
+    // Build world quaternion from orthonormal hand frame
+    _hMat.makeBasis(_hForward, _hPalmN, _hSide);
+    _hWorldQ.setFromRotationMatrix(_hMat);
+
+    // Express in parent-local space (parent = LowerArm bone)
+    _hParentQ.identity();
+    if (handBone.parent) handBone.parent.getWorldQuaternion(_hParentQ);
+    _hLocalQ.copy(_hParentQ).invert().multiply(_hWorldQ);
+
+    handBone.quaternion.slerp(_hLocalQ, 0.4);
+    handBone.updateWorldMatrix(false, true); // propagate to finger children
+  }
 
   const logHand = DEBUG_HANDS && (_dbgHandFrame % 60 === 0);
 
@@ -347,10 +402,7 @@ function _driveOneSide(
       );
     }
 
-    if (!_prevHandBoneQ.has(cfg.name)) _prevHandBoneQ.set(cfg.name, new THREE.Quaternion());
-    _prevHandBoneQ.get(cfg.name)!.copy(_localQ);
-
-    bone.quaternion.slerp(_localQ, 0.5);
+    bone.quaternion.slerp(_localQ, 0.3);
     bone.updateWorldMatrix(false, false);
   }
 }
@@ -366,10 +418,7 @@ export function driveHands(
   const hasHands = (leftHandLms && leftHandLms.length >= 21) || (rightHandLms && rightHandLms.length >= 21);
   if (hasHands) _dbgHandFrame++;
 
-  if (leftHandLms  && leftHandLms.length  >= 21) _driveOneSide(bones, leftHandLms,  LEFT_FINGER_CFGS);
-  if (rightHandLms && rightHandLms.length >= 21) _driveOneSide(bones, rightHandLms, RIGHT_FINGER_CFGS);
+  if (leftHandLms  && leftHandLms.length  >= 21) _driveOneSide(bones, leftHandLms,  LEFT_FINGER_CFGS,  "Left");
+  if (rightHandLms && rightHandLms.length >= 21) _driveOneSide(bones, rightHandLms, RIGHT_FINGER_CFGS, "Right");
 }
 
-export function resetHandDriverState(): void {
-  _prevHandBoneQ.clear();
-}

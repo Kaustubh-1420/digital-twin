@@ -125,8 +125,9 @@ export function usePoseLandmarker() {
             hResult.handedness?.forEach((handedness, i) => {
               const rawHand = hResult.worldLandmarks?.[i] as HandLandmarks | undefined;
               if (!rawHand) return;
-              // Front-facing unmirrored feed: MediaPipe "Left" = user's right hand — swap.
-              const isUserLeft = handedness[0].categoryName === "Right";
+              // MediaPipe labels hands anatomically ("Right" = user's actual right hand).
+              // No swap needed — assign directly.
+              const isUserLeft = handedness[0].categoryName === "Left";
               if (isUserLeft) {
                 leftHandRef.current = leftHandFilterRef.current.filter(rawHand);
               } else {

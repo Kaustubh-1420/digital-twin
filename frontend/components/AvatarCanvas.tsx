@@ -121,8 +121,12 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
         console.log("[AvatarCanvas] bail: lms=", lms ? lms.length : null, "sk=", !!sk);
       return;
     }
-    driveSkeleton(sk, lms, mirrorRef.current);
-    driveHands(sk, leftHandRef.current, rightHandRef.current);
+    const isMirror = mirrorRef.current;
+    driveSkeleton(sk, lms, isMirror);
+    driveHands(sk,
+      isMirror ? rightHandRef.current : leftHandRef.current,
+      isMirror ? leftHandRef.current  : rightHandRef.current,
+    );
 
     if (!webcamActive || !normLms || normLms.length < 33) return;
 

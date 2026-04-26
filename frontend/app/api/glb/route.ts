@@ -4,8 +4,8 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
   if (!url) return new Response("Missing url param", { status: 400 });
 
-  // Only allow HF Space URLs to prevent open-proxy abuse
-  if (!url.startsWith("https://") || !url.includes(".hf.space/")) {
+  // Only allow our specific HF Space to prevent open-proxy abuse
+  if (!url.startsWith("https://kaustubh1420-digital-twin.hf.space/")) {
     return new Response("Forbidden", { status: 403 });
   }
 
