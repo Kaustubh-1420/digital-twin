@@ -5,14 +5,16 @@ import type { RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
-import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
-import { driveSkeleton } from "@/lib/poseSolver";
+import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
+import { driveSkeleton, driveHands } from "@/lib/poseSolver";
 
 type Props = {
   glbUrl: string | null;
   loading: boolean;
   landmarksRef: RefObject<PoseLandmarks | null>;
   normLandmarksRef: RefObject<PoseLandmarks | null>;
+  leftHandRef: RefObject<HandLandmarks | null>;
+  rightHandRef: RefObject<HandLandmarks | null>;
   mirrorRef: RefObject<boolean>;
   webcamActive: boolean;
 };
@@ -81,11 +83,13 @@ type AvatarProps = {
   url: string;
   landmarksRef: RefObject<PoseLandmarks | null>;
   normLandmarksRef: RefObject<PoseLandmarks | null>;
+  leftHandRef: RefObject<HandLandmarks | null>;
+  rightHandRef: RefObject<HandLandmarks | null>;
   mirrorRef: RefObject<boolean>;
   webcamActive: boolean;
 };
 
-function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }: AvatarProps) {
+function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, mirrorRef, webcamActive }: AvatarProps) {
   const { scene: gltfScene } = useGLTF(url);
   const { camera } = useThree();
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
@@ -118,6 +122,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, mirrorRef, webcamActive }
       return;
     }
     driveSkeleton(sk, lms, mirrorRef.current);
+    driveHands(sk, leftHandRef.current, rightHandRef.current);
 
     if (!webcamActive || !normLms || normLms.length < 33) return;
 
@@ -193,7 +198,7 @@ function PlaceholderFigure() {
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
 export default function AvatarCanvas({
-  glbUrl, loading, landmarksRef, normLandmarksRef, mirrorRef, webcamActive,
+  glbUrl, loading, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, mirrorRef, webcamActive,
 }: Props) {
   return (
     <div className="relative w-full h-full">
@@ -218,6 +223,8 @@ export default function AvatarCanvas({
               url={glbUrl}
               landmarksRef={landmarksRef}
               normLandmarksRef={normLandmarksRef}
+              leftHandRef={leftHandRef}
+              rightHandRef={rightHandRef}
               mirrorRef={mirrorRef}
               webcamActive={webcamActive}
             />

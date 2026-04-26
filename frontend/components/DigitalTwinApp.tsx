@@ -18,7 +18,7 @@ export default function DigitalTwinApp() {
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [measurements, setMeasurements] = useState<string | null>(null);
 
-  const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, normLandmarksRef, videoRef, start: startWebcam, stop: stopWebcam } =
+  const { ready: mpReady, active: webcamActive, error: mpError, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, videoRef, start: startWebcam, stop: stopWebcam } =
     usePoseLandmarker();
 
   const [mirrorMode, setMirrorMode] = useState(false);
@@ -127,6 +127,8 @@ export default function DigitalTwinApp() {
             loading={loading}
             landmarksRef={landmarksRef}
             normLandmarksRef={normLandmarksRef}
+            leftHandRef={leftHandRef}
+            rightHandRef={rightHandRef}
             mirrorRef={mirrorRef}
             active={webcamActive}
           />

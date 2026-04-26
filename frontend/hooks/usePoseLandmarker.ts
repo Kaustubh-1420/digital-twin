@@ -5,8 +5,10 @@ import { LandmarksFilter } from "@/lib/oneEuroFilter";
 
 // Pinned to the installed package version
 const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm";
-const MODEL_URL =
+const POSE_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+const HAND_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
 
 export type Landmark = {
   x: number;
@@ -16,6 +18,7 @@ export type Landmark = {
 };
 
 export type PoseLandmarks = Landmark[];
+export type HandLandmarks = Landmark[];
 
 export function usePoseLandmarker() {
   const [ready, setReady] = useState(false);
@@ -26,31 +29,45 @@ export function usePoseLandmarker() {
   const landmarksRef    = useRef<PoseLandmarks | null>(null);
   // Normalized (image-space) landmarks for the 2D overlay canvas
   const normLandmarksRef = useRef<PoseLandmarks | null>(null);
+  // Hand world landmarks (wrist-centered, metric). leftHandRef = user's actual left hand.
+  const leftHandRef  = useRef<HandLandmarks | null>(null);
+  const rightHandRef = useRef<HandLandmarks | null>(null);
 
-  const landmarkerRef = useRef<import("@mediapipe/tasks-vision").PoseLandmarker | null>(null);
-  const videoRef      = useRef<HTMLVideoElement | null>(null);
-  const rafRef        = useRef<number>(0);
-  const filterRef     = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
+  const landmarkerRef     = useRef<import("@mediapipe/tasks-vision").PoseLandmarker | null>(null);
+  const handLandmarkerRef = useRef<import("@mediapipe/tasks-vision").HandLandmarker | null>(null);
+  const videoRef          = useRef<HTMLVideoElement | null>(null);
+  const rafRef            = useRef<number>(0);
+  const filterRef         = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
+  const leftHandFilterRef  = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
+  const rightHandFilterRef = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
 
   // Load the model once on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const { FilesetResolver, PoseLandmarker } = await import(
+        const { FilesetResolver, PoseLandmarker, HandLandmarker } = await import(
           "@mediapipe/tasks-vision"
         );
         const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
-        const lm = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: MODEL_URL },
-          runningMode: "VIDEO",
-          numPoses: 1,
-          outputSegmentationMasks: false,
-        });
+        const [lm, hlm] = await Promise.all([
+          PoseLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: POSE_MODEL_URL },
+            runningMode: "VIDEO",
+            numPoses: 1,
+            outputSegmentationMasks: false,
+          }),
+          HandLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: HAND_MODEL_URL },
+            runningMode: "VIDEO",
+            numHands: 2,
+          }),
+        ]);
         if (!cancelled) {
           landmarkerRef.current = lm;
+          handLandmarkerRef.current = hlm;
           setReady(true);
-          console.log("[MediaPipe] model ready");
+          console.log("[MediaPipe] pose + hand models ready");
         }
       } catch (e) {
         if (!cancelled)
@@ -98,6 +115,25 @@ export function usePoseLandmarker() {
             console.log(`[MediaPipe] frame=${_dbgLmFrame} worldLandmarks OK len=${raw.length} hipL.y=${h.y.toFixed(3)} shldL.y=${s.y.toFixed(3)} (expect hipL.y<0, shldL.y>0 for Y-up)`);
           }
           if (raw) _dbgLmFrame++;
+
+          // Hand detection — reset each frame then populate from results
+          leftHandRef.current = null;
+          rightHandRef.current = null;
+          const hLm = handLandmarkerRef.current;
+          if (hLm) {
+            const hResult = hLm.detectForVideo(video, ts);
+            hResult.handedness?.forEach((handedness, i) => {
+              const rawHand = hResult.worldLandmarks?.[i] as HandLandmarks | undefined;
+              if (!rawHand) return;
+              // Front-facing unmirrored feed: MediaPipe "Left" = user's right hand — swap.
+              const isUserLeft = handedness[0].categoryName === "Right";
+              if (isUserLeft) {
+                leftHandRef.current = leftHandFilterRef.current.filter(rawHand);
+              } else {
+                rightHandRef.current = rightHandFilterRef.current.filter(rawHand);
+              }
+            });
+          }
         }
         rafRef.current = requestAnimationFrame(detect);
       };
@@ -117,9 +153,13 @@ export function usePoseLandmarker() {
     videoRef.current = null;
     landmarksRef.current = null;
     normLandmarksRef.current = null;
-    filterRef.current = new LandmarksFilter(1.0, 0.3); // reset filter state
+    leftHandRef.current = null;
+    rightHandRef.current = null;
+    filterRef.current = new LandmarksFilter(1.0, 0.3);
+    leftHandFilterRef.current  = new LandmarksFilter(1.0, 0.3);
+    rightHandFilterRef.current = new LandmarksFilter(1.0, 0.3);
     setActive(false);
   }, []);
 
-  return { ready, active, error, landmarksRef, normLandmarksRef, videoRef, start, stop };
+  return { ready, active, error, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, videoRef, start, stop };
 }

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { PoseLandmarks } from "@/hooks/usePoseLandmarker";
+import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 
 // Toggle to see per-frame diagnostics in the browser console.
 const DEBUG_POSE = true;
@@ -258,4 +258,103 @@ export function driveSkeleton(
 export function resetSkeletonDriverState(): void {
   _prevBoneQ.clear();
   _dbgFrame = 0;
+}
+
+// ── Hand driving ──────────────────────────────────────────────────────────────
+
+// MediaPipe HandLandmarker landmark indices (0–20 per hand)
+const HMP = {
+  WRIST:      0,
+  THUMB_CMC:  1, THUMB_MCP:  2, THUMB_IP:  3, THUMB_TIP:  4,
+  INDEX_MCP:  5, INDEX_PIP:  6, INDEX_DIP:  7, INDEX_TIP:  8,
+  MIDDLE_MCP: 9, MIDDLE_PIP: 10, MIDDLE_DIP: 11, MIDDLE_TIP: 12,
+  RING_MCP:  13, RING_PIP:  14, RING_DIP:  15, RING_TIP:  16,
+  PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20,
+} as const;
+
+type FingerBoneCfg = { name: string; from: number; to: number; restDir: THREE.Vector3 };
+
+// Template expanded into Left/Right variants; rest = +X (left) / -X (right) for T-pose arm alignment
+const _FINGER_TEMPLATE: Array<{ finger: string; from: number; to: number; suffix: string }> = [
+  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal"   },
+  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal"     },
+  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal"       },
+  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal"     },
+  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate" },
+  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal"       },
+  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal"     },
+  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate" },
+  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal"       },
+  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal"     },
+  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate" },
+  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal"       },
+  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal"     },
+  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate" },
+  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal"       },
+];
+
+function _buildFingerCfgs(side: "Left" | "Right"): FingerBoneCfg[] {
+  const rx = side === "Left" ? 1 : -1;
+  return _FINGER_TEMPLATE.map(t => ({
+    name:    `${side}${t.finger}${t.suffix}`,
+    from:    t.from,
+    to:      t.to,
+    restDir: R(rx, 0, 0),
+  }));
+}
+
+const LEFT_FINGER_CFGS  = _buildFingerCfgs("Left");
+const RIGHT_FINGER_CFGS = _buildFingerCfgs("Right");
+
+const _prevHandBoneQ = new Map<string, THREE.Quaternion>();
+
+function _driveOneSide(
+  bones: Map<string, THREE.Bone>,
+  lms: HandLandmarks,
+  cfgs: FingerBoneCfg[],
+): void {
+  // Same Y-down → Y-up flip as body landmarks
+  const src = lms.map(lm => ({ x: lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
+
+  for (const cfg of cfgs) {
+    const bone = bones.get(cfg.name);
+    if (!bone) continue;
+
+    const from = src[cfg.from];
+    const to   = src[cfg.to];
+    if (!from || !to) continue;
+
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if (len < 1e-6) continue;
+
+    // Observed direction in parent-local space (same local-space swing decomp as body)
+    _parentWorldQ.identity();
+    if (bone.parent) bone.parent.getWorldQuaternion(_parentWorldQ);
+    _q1.copy(_parentWorldQ).invert();
+    _v1.set(dx/len, dy/len, dz/len).applyQuaternion(_q1);
+    _localQ.setFromUnitVectors(cfg.restDir, _v1);
+
+    if (!_prevHandBoneQ.has(cfg.name)) _prevHandBoneQ.set(cfg.name, new THREE.Quaternion());
+    _prevHandBoneQ.get(cfg.name)!.copy(_localQ);
+
+    bone.quaternion.slerp(_localQ, 0.5);
+    bone.updateWorldMatrix(false, false);
+  }
+}
+
+export function driveHands(
+  skeleton: THREE.Skeleton,
+  leftHandLms: HandLandmarks | null,
+  rightHandLms: HandLandmarks | null,
+): void {
+  const bones: Map<string, THREE.Bone> = new Map();
+  skeleton.bones.forEach(b => bones.set(b.name, b));
+
+  if (leftHandLms  && leftHandLms.length  >= 21) _driveOneSide(bones, leftHandLms,  LEFT_FINGER_CFGS);
+  if (rightHandLms && rightHandLms.length >= 21) _driveOneSide(bones, rightHandLms, RIGHT_FINGER_CFGS);
+}
+
+export function resetHandDriverState(): void {
+  _prevHandBoneQ.clear();
 }

@@ -7,44 +7,94 @@ import struct
 import tempfile
 import numpy as np
 
-# ── SMPL-X body joint topology (first 22 joints) ─────────────────────────────
+# SMPL-X joint indices we export: body (0-21) + hands (25-54); skip jaw(22) eyes(23,24)
+_SMPLX_COLS = list(range(22)) + list(range(25, 55))  # 52 joints total
+
+# ── Joint names in GLB order (indices into _SMPLX_COLS) ──────────────────────
 
 _JOINT_NAMES = [
+    # body (0-21)
     'pelvis', 'left_hip', 'right_hip', 'spine1',
     'left_knee', 'right_knee', 'spine2', 'left_ankle',
     'right_ankle', 'spine3', 'left_foot', 'right_foot',
     'neck', 'left_collar', 'right_collar', 'head',
     'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow',
     'left_wrist', 'right_wrist',
+    # left hand (22-36) — SMPL-X joints 25-39
+    'left_index1', 'left_index2', 'left_index3',
+    'left_middle1', 'left_middle2', 'left_middle3',
+    'left_pinky1', 'left_pinky2', 'left_pinky3',
+    'left_ring1', 'left_ring2', 'left_ring3',
+    'left_thumb1', 'left_thumb2', 'left_thumb3',
+    # right hand (37-51) — SMPL-X joints 40-54
+    'right_index1', 'right_index2', 'right_index3',
+    'right_middle1', 'right_middle2', 'right_middle3',
+    'right_pinky1', 'right_pinky2', 'right_pinky3',
+    'right_ring1', 'right_ring2', 'right_ring3',
+    'right_thumb1', 'right_thumb2', 'right_thumb3',
 ]
 
 _PARENTS = [
-    -1,  # pelvis
-     0,  # left_hip
-     0,  # right_hip
-     0,  # spine1
-     1,  # left_knee
-     2,  # right_knee
-     3,  # spine2
-     4,  # left_ankle
-     5,  # right_ankle
-     6,  # spine3
-     7,  # left_foot
-     8,  # right_foot
-     9,  # neck
-     9,  # left_collar
-     9,  # right_collar
-    12,  # head
-    13,  # left_shoulder
-    14,  # right_shoulder
-    16,  # left_elbow
-    17,  # right_elbow
-    18,  # left_wrist
-    19,  # right_wrist
+    # body
+    -1,  # 0  pelvis
+     0,  # 1  left_hip
+     0,  # 2  right_hip
+     0,  # 3  spine1
+     1,  # 4  left_knee
+     2,  # 5  right_knee
+     3,  # 6  spine2
+     4,  # 7  left_ankle
+     5,  # 8  right_ankle
+     6,  # 9  spine3
+     7,  # 10 left_foot
+     8,  # 11 right_foot
+     9,  # 12 neck
+     9,  # 13 left_collar
+     9,  # 14 right_collar
+    12,  # 15 head
+    13,  # 16 left_shoulder
+    14,  # 17 right_shoulder
+    16,  # 18 left_elbow
+    17,  # 19 right_elbow
+    18,  # 20 left_wrist
+    19,  # 21 right_wrist
+    # left hand — all roots parent to left_wrist (20)
+    20,  # 22 left_index1
+    22,  # 23 left_index2
+    23,  # 24 left_index3
+    20,  # 25 left_middle1
+    25,  # 26 left_middle2
+    26,  # 27 left_middle3
+    20,  # 28 left_pinky1
+    28,  # 29 left_pinky2
+    29,  # 30 left_pinky3
+    20,  # 31 left_ring1
+    31,  # 32 left_ring2
+    32,  # 33 left_ring3
+    20,  # 34 left_thumb1
+    34,  # 35 left_thumb2
+    35,  # 36 left_thumb3
+    # right hand — all roots parent to right_wrist (21)
+    21,  # 37 right_index1
+    37,  # 38 right_index2
+    38,  # 39 right_index3
+    21,  # 40 right_middle1
+    40,  # 41 right_middle2
+    41,  # 42 right_middle3
+    21,  # 43 right_pinky1
+    43,  # 44 right_pinky2
+    44,  # 45 right_pinky3
+    21,  # 46 right_ring1
+    46,  # 47 right_ring2
+    47,  # 48 right_ring3
+    21,  # 49 right_thumb1
+    49,  # 50 right_thumb2
+    50,  # 51 right_thumb3
 ]
 
-# VRM 1.0 humanoid bone names (Kalidokit PoseSolver uses these exact strings)
+# VRM 1.0 humanoid bone names
 _VRM_NAMES = {
+    # body
     'pelvis':         'Hips',
     'left_hip':       'LeftUpperLeg',
     'right_hip':      'RightUpperLeg',
@@ -67,34 +117,64 @@ _VRM_NAMES = {
     'right_elbow':    'RightLowerArm',
     'left_wrist':     'LeftHand',
     'right_wrist':    'RightHand',
+    # left hand
+    'left_index1':    'LeftIndexProximal',
+    'left_index2':    'LeftIndexIntermediate',
+    'left_index3':    'LeftIndexDistal',
+    'left_middle1':   'LeftMiddleProximal',
+    'left_middle2':   'LeftMiddleIntermediate',
+    'left_middle3':   'LeftMiddleDistal',
+    'left_pinky1':    'LeftLittleProximal',
+    'left_pinky2':    'LeftLittleIntermediate',
+    'left_pinky3':    'LeftLittleDistal',
+    'left_ring1':     'LeftRingProximal',
+    'left_ring2':     'LeftRingIntermediate',
+    'left_ring3':     'LeftRingDistal',
+    'left_thumb1':    'LeftThumbMetacarpal',
+    'left_thumb2':    'LeftThumbProximal',
+    'left_thumb3':    'LeftThumbDistal',
+    # right hand
+    'right_index1':   'RightIndexProximal',
+    'right_index2':   'RightIndexIntermediate',
+    'right_index3':   'RightIndexDistal',
+    'right_middle1':  'RightMiddleProximal',
+    'right_middle2':  'RightMiddleIntermediate',
+    'right_middle3':  'RightMiddleDistal',
+    'right_pinky1':   'RightLittleProximal',
+    'right_pinky2':   'RightLittleIntermediate',
+    'right_pinky3':   'RightLittleDistal',
+    'right_ring1':    'RightRingProximal',
+    'right_ring2':    'RightRingIntermediate',
+    'right_ring3':    'RightRingDistal',
+    'right_thumb1':   'RightThumbMetacarpal',
+    'right_thumb2':   'RightThumbProximal',
+    'right_thumb3':   'RightThumbDistal',
 }
 
-N_JOINTS = len(_JOINT_NAMES)  # 22
+N_JOINTS = len(_JOINT_NAMES)  # 52
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _top4_weights(lbs_weights, vertices=None, joint_positions=None):
     """
-    lbs_weights:     (N, >=22) float32 — SMPL-X LBS weights (first 22 cols = body joints)
-    vertices:        (N, 3)   float32 — T-pose vertex positions
-    joint_positions: (22, 3)  float32 — T-pose joint world positions
+    lbs_weights:     (N, 55) float32 — SMPL-X LBS weights (all 55 joints)
+    vertices:        (N, 3)  float32 — T-pose vertex positions
+    joint_positions: (52, 3) float32 — T-pose joint positions for exported joints
 
-    SMPL-X has 55 joints; we export only 22. Vertices whose weight is mostly on discarded
-    joints (fingers, jaw, eyes) renormalize onto wrong body joints → explosion artifacts.
-    Fix: detect low-captured-weight vertices and clamp each to its nearest joint by
-    Euclidean distance. This correctly maps fingers→wrist, jaw/face→head, etc.
+    We export 52 of 55 joints (skip jaw=22, eyes=23,24). Vertices whose summed weight
+    on the 52 exported joints is < 0.3 (jaw/eye verts) are clamped to nearest joint.
     """
-    w = np.asarray(lbs_weights[:, :N_JOINTS], dtype=np.float32).copy()
+    w = np.asarray(lbs_weights[:, _SMPLX_COLS], dtype=np.float32).copy()
 
-    if lbs_weights.shape[1] > N_JOINTS and vertices is not None and joint_positions is not None:
+    if vertices is not None and joint_positions is not None:
         verts = np.asarray(vertices, dtype=np.float32)
-        jpos  = np.asarray(joint_positions, dtype=np.float32)  # (22, 3)
-        problem = np.where(w.sum(axis=1) < 0.3)[0]             # row indices
+        jpos  = np.asarray(joint_positions, dtype=np.float32)  # (52, 3)
+        problem = np.where(w.sum(axis=1) < 0.3)[0]             # jaw/eye verts
         if len(problem):
             dists = np.linalg.norm(
                 verts[problem, None, :] - jpos[None, :, :], axis=2
-            )                                                   # (M, 22)
+            )                                                   # (M, 52)
             nearest = dists.argmin(axis=1)                      # (M,)
             w[problem] = 0.0
             w[problem, nearest] = 1.0
@@ -141,15 +221,15 @@ def export_skinned_glb(vertices, faces, joints_world, lbs_weights) -> str:
 
     vertices:     (N, 3)   float32 — scaled T-pose vertices
     faces:        (F, 3)   int32/uint32 — triangle indices
-    joints_world: (>=22,3) float32 — scaled joint world positions
-    lbs_weights:  (N, >=22) float32 — SMPL-X per-vertex LBS weights
+    joints_world: (>=55,3) float32 — scaled joint world positions (all 55 SMPL-X joints)
+    lbs_weights:  (N, 55)  float32 — SMPL-X per-vertex LBS weights
 
     Returns path to a temp .glb file (caller owns cleanup).
     """
-    verts  = np.asarray(vertices,          dtype=np.float32)
-    tris   = np.asarray(faces,             dtype=np.uint32)
-    jpos   = np.asarray(joints_world[:N_JOINTS], dtype=np.float32)
-    lbsw   = np.asarray(lbs_weights,       dtype=np.float32)
+    verts  = np.asarray(vertices,                         dtype=np.float32)
+    tris   = np.asarray(faces,                            dtype=np.uint32)
+    jpos   = np.asarray(joints_world, dtype=np.float32)[_SMPLX_COLS]  # (52, 3)
+    lbsw   = np.asarray(lbs_weights,                      dtype=np.float32)
 
     N, F = len(verts), len(tris)
 
