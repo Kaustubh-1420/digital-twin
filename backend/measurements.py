@@ -38,6 +38,25 @@ def _plane_slice_perimeter(vertices: np.ndarray, faces: np.ndarray, y: float) ->
     return max(e.length(path2d.vertices) for e in path2d.entities)
 
 
+def _shoulder_skin_point(vertices: np.ndarray, joint: np.ndarray, side: str) -> np.ndarray:
+    """
+    Return the skin-surface point at the shoulder.
+    Queries the outermost vertex within ±4cm Y and ±6cm X of the glenohumeral joint.
+    side='left' (positive X) or 'right' (negative X).
+    """
+    y_mask = np.abs(vertices[:, 1] - joint[1]) < 0.04
+    if side == 'left':
+        x_mask = (vertices[:, 0] > joint[0] - 0.01) & (vertices[:, 0] < joint[0] + 0.06)
+    else:
+        x_mask = (vertices[:, 0] > joint[0] - 0.06) & (vertices[:, 0] < joint[0] + 0.01)
+    mask = y_mask & x_mask
+    if not np.any(mask):
+        return joint.copy()
+    sv = vertices[mask]
+    idx = np.argmax(sv[:, 0]) if side == 'left' else np.argmin(sv[:, 0])
+    return sv[idx].copy()
+
+
 def _torso_ellipse_circumference(vertices: np.ndarray, y: float,
                                   x_limit: float, band: float = 0.025) -> float:
     """
@@ -90,17 +109,22 @@ def extract_measurements(vertices: np.ndarray, faces: np.ndarray,
     hip_circ    = _plane_slice_perimeter(vertices, faces, hip_y)
 
     # --- Lengths along joint chains ---
-    # Inseam: pelvis(0) → left_hip(1) → left_knee(4) → left_ankle(7)
-    inseam = (np.linalg.norm(J[0] - J[1]) +
-              np.linalg.norm(J[1] - J[4]) +
+    # Inseam: left_hip(1) → left_knee(4) → left_ankle(7)
+    # Starts at hip/crotch level, not pelvis center.
+    inseam = (np.linalg.norm(J[1] - J[4]) +
               np.linalg.norm(J[4] - J[7]))
 
-    # Arm length: left_shoulder(16) → left_elbow(18) → left_wrist(20)
+    # Skin-surface points at each shoulder (acromion region).
+    left_sh_pt  = _shoulder_skin_point(vertices, J[16], 'left')
+    right_sh_pt = _shoulder_skin_point(vertices, J[17], 'right')
+
+    # Arm length: glenohumeral joint(16) → left_elbow(18) → left_wrist(20)
+    # Joint-chain distance; ~2-4cm shorter than a tailor's acromion-to-wrist measure.
     arm_len = (np.linalg.norm(J[16] - J[18]) +
                np.linalg.norm(J[18] - J[20]))
 
-    # --- Shoulder width: straight line between shoulder joints ---
-    shoulder_w = float(np.linalg.norm(J[16] - J[17]))
+    # Shoulder width: skin-surface acromion to acromion
+    shoulder_w = float(np.abs(left_sh_pt[0] - right_sh_pt[0]))
 
     def m_to_cm(v):
         return round(float(v) * 100, 1)

@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.join(ROOT, 'backend'))
 from pymafx_backend import infer as pymafx_infer, load_model as pymafx_load
 from scale import scale_to_height
 from measurements import extract_measurements
-from export_glb import export_skinned_glb
+from export_glb import export_skinned_glb, compute_expression_morphs
 
 SMPLX_MODEL_PATH = (
     '/tmp/smplx-models'
@@ -120,20 +120,26 @@ def run_pipeline(image_path: str, height_cm: float):
         global_orient=torch.zeros(1, 3),
         return_verts=True,
     )
-    vertices = out.vertices[0].detach().numpy()
-    joints   = out.joints[0].detach().numpy()
-    faces    = smplx_model.faces
+    raw_verts = out.vertices[0].detach().numpy()
+    joints    = out.joints[0].detach().numpy()
+    faces     = smplx_model.faces
 
     # 4. scale to user height
-    vertices, joints = scale_to_height(vertices, height_cm, joints)
+    mesh_h = float(raw_verts[:, 1].max() - raw_verts[:, 1].min())
+    scale_factor = (height_cm / 100.0) / mesh_h
+    vertices = (raw_verts * scale_factor).astype(raw_verts.dtype)
+    joints   = (joints    * scale_factor).astype(joints.dtype)
 
     # 5. measurements
     measurements = extract_measurements(vertices, faces, joints)
     meas_text = _fmt_measurements(measurements)
 
-    # 6. export skinned GLB with VRM bone names
+    # 6. expression morph targets — user-specific betas, scaled to match mesh
+    morph_deltas = compute_expression_morphs(smplx_model, betas, scale_factor)
+
+    # 7. export skinned GLB with VRM bone names and face morph targets
     lbs_weights = smplx_model.lbs_weights.detach().numpy()
-    glb_path = export_skinned_glb(vertices, faces, joints, lbs_weights)
+    glb_path = export_skinned_glb(vertices, faces, joints, lbs_weights, morph_deltas)
 
     return glb_path, meas_text, '✓ Done'
 

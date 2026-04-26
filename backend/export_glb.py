@@ -6,6 +6,7 @@ import json
 import struct
 import tempfile
 import numpy as np
+import torch
 
 # SMPL-X joint indices we export: body (0-21) + hands (25-54); skip jaw(22) eyes(23,24)
 _SMPLX_COLS = list(range(22)) + list(range(25, 55))  # 52 joints total
@@ -153,6 +154,13 @@ _VRM_NAMES = {
 
 N_JOINTS = len(_JOINT_NAMES)  # 52
 
+# 10 SMPL-X expression PCA components exported as morph targets.
+# Names match what Three.js will populate in mesh.morphTargetDictionary.
+EXPRESSION_MORPH_NAMES = [f"expr_{i}" for i in range(10)]
+# Strength to drive each basis vector (how far we push the expression).
+# 2.0 gives visible but not exaggerated deformation for all 10 components.
+_EXPR_STRENGTH = 2.0
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -213,16 +221,44 @@ def _pack(*arrays):
     return b''.join(blob), offsets
 
 
+# ── expression morphs ────────────────────────────────────────────────────────
+
+def compute_expression_morphs(smplx_model, betas, scale_factor: float = 1.0) -> np.ndarray:
+    """
+    Return (10, N, 3) float32 scaled vertex deltas — one per SMPL-X expression component.
+
+    Each delta[i] = vertices(expression[i]=_EXPR_STRENGTH) - vertices(expression=0),
+    scaled by scale_factor so they match the height-scaled mesh in the GLB.
+    """
+    n = len(EXPRESSION_MORPH_NAMES)
+    zero_expr = torch.zeros(1, n)
+    kw = dict(betas=betas, body_pose=torch.zeros(1, 63),
+              global_orient=torch.zeros(1, 3), return_verts=True)
+
+    with torch.no_grad():
+        base_v = smplx_model(expression=zero_expr, **kw).vertices[0].numpy()
+        deltas = np.zeros((n, len(base_v), 3), dtype=np.float32)
+        for i in range(n):
+            expr = zero_expr.clone()
+            expr[0, i] = _EXPR_STRENGTH
+            v_i = smplx_model(expression=expr, **kw).vertices[0].numpy()
+            deltas[i] = (v_i - base_v).astype(np.float32) * scale_factor
+
+    return deltas
+
+
 # ── main export ───────────────────────────────────────────────────────────────
 
-def export_skinned_glb(vertices, faces, joints_world, lbs_weights) -> str:
+def export_skinned_glb(vertices, faces, joints_world, lbs_weights,
+                       morph_deltas: np.ndarray | None = None) -> str:
     """
-    Build a skinned GLB with VRM humanoid bone names.
+    Build a skinned GLB with VRM humanoid bone names and optional morph targets.
 
     vertices:     (N, 3)   float32 — scaled T-pose vertices
     faces:        (F, 3)   int32/uint32 — triangle indices
     joints_world: (>=55,3) float32 — scaled joint world positions (all 55 SMPL-X joints)
     lbs_weights:  (N, 55)  float32 — SMPL-X per-vertex LBS weights
+    morph_deltas: (M, N, 3) float32 — optional M morph target vertex deltas (scaled)
 
     Returns path to a temp .glb file (caller owns cleanup).
     """
@@ -246,9 +282,15 @@ def export_skinned_glb(vertices, faces, joints_world, lbs_weights) -> str:
     j_idx, j_wt = _top4_weights(lbsw, verts, jpos)
     inv_binds = np.stack([_col_major_inv_bind(jpos[j]) for j in range(N_JOINTS)])
 
-    bin_blob, offsets = _pack(verts, normals, tris, j_idx, j_wt, inv_binds)
+    # Morph target arrays
+    n_morphs = 0
+    morph_arrays: list[np.ndarray] = []
+    if morph_deltas is not None:
+        n_morphs = len(morph_deltas)
+        morph_arrays = [np.asarray(d, dtype=np.float32) for d in morph_deltas]
 
-    # Buffer views (one per data block)
+    bin_blob, offsets = _pack(verts, normals, tris, j_idx, j_wt, inv_binds, *morph_arrays)
+
     ARRAY_BUF, ELEM_BUF = 34962, 34963
     bvs = [
         {"buffer": 0, "byteOffset": offsets[0], "byteLength": N * 12,        "target": ARRAY_BUF},
@@ -256,28 +298,44 @@ def export_skinned_glb(vertices, faces, joints_world, lbs_weights) -> str:
         {"buffer": 0, "byteOffset": offsets[2], "byteLength": F * 3 * 4,     "target": ELEM_BUF},
         {"buffer": 0, "byteOffset": offsets[3], "byteLength": N * 4 * 2,     "target": ARRAY_BUF},
         {"buffer": 0, "byteOffset": offsets[4], "byteLength": N * 4 * 4,     "target": ARRAY_BUF},
-        {"buffer": 0, "byteOffset": offsets[5], "byteLength": N_JOINTS * 64              },
+        {"buffer": 0, "byteOffset": offsets[5], "byteLength": N_JOINTS * 64             },
     ]
+    for i in range(n_morphs):
+        bvs.append({"buffer": 0, "byteOffset": offsets[6 + i],
+                    "byteLength": N * 12, "target": ARRAY_BUF})
 
     FLOAT, UINT32, UINT16 = 5126, 5125, 5123
     accs = [
         {"bufferView": 0, "componentType": FLOAT,  "count": N,         "type": "VEC3",
-         "min": verts.min(0).tolist(), "max": verts.max(0).tolist()},  # POSITION
-        {"bufferView": 1, "componentType": FLOAT,  "count": N,         "type": "VEC3"},  # NORMAL
-        {"bufferView": 2, "componentType": UINT32, "count": F * 3,     "type": "SCALAR"},  # indices
-        {"bufferView": 3, "componentType": UINT16, "count": N,         "type": "VEC4"},  # JOINTS_0
-        {"bufferView": 4, "componentType": FLOAT,  "count": N,         "type": "VEC4"},  # WEIGHTS_0
-        {"bufferView": 5, "componentType": FLOAT,  "count": N_JOINTS,  "type": "MAT4"},  # invBindMat
+         "min": verts.min(0).tolist(), "max": verts.max(0).tolist()},
+        {"bufferView": 1, "componentType": FLOAT,  "count": N,         "type": "VEC3"},
+        {"bufferView": 2, "componentType": UINT32, "count": F * 3,     "type": "SCALAR"},
+        {"bufferView": 3, "componentType": UINT16, "count": N,         "type": "VEC4"},
+        {"bufferView": 4, "componentType": FLOAT,  "count": N,         "type": "VEC4"},
+        {"bufferView": 5, "componentType": FLOAT,  "count": N_JOINTS,  "type": "MAT4"},
     ]
+    for i, d in enumerate(morph_arrays):
+        accs.append({"bufferView": 6 + i, "componentType": FLOAT, "count": N, "type": "VEC3",
+                     "min": d.min(0).tolist(), "max": d.max(0).tolist()})
 
-    # Node layout: 0=Armature root, 1..22=joints, 23=mesh node
-    J0 = 1  # joint node index offset
+    # Mesh primitive
+    primitive = {
+        "attributes": {"POSITION": 0, "NORMAL": 1, "JOINTS_0": 3, "WEIGHTS_0": 4},
+        "indices": 2, "mode": 4,
+    }
+    if n_morphs:
+        primitive["targets"] = [{"POSITION": 6 + i} for i in range(n_morphs)]
+
+    mesh_def: dict = {"name": "Body", "primitives": [primitive]}
+    if n_morphs:
+        mesh_def["weights"] = [0.0] * n_morphs
+        mesh_def["extras"]  = {"targetNames": EXPRESSION_MORPH_NAMES[:n_morphs]}
+
+    # Node layout: 0=Armature root, 1..N_JOINTS=joints, N_JOINTS+1=mesh node
+    J0 = 1
     MESH_NODE = N_JOINTS + 1
 
-    nodes = [{
-        "name": "Armature",
-        "children": [J0, MESH_NODE],
-    }]
+    nodes = [{"name": "Armature", "children": [J0, MESH_NODE]}]
     for j in range(N_JOINTS):
         p = _PARENTS[j]
         local = (jpos[j] - jpos[p]).tolist() if p >= 0 else jpos[j].tolist()
@@ -293,10 +351,7 @@ def export_skinned_glb(vertices, faces, joints_world, lbs_weights) -> str:
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": nodes,
-        "meshes": [{"name": "Body", "primitives": [{
-            "attributes": {"POSITION": 0, "NORMAL": 1, "JOINTS_0": 3, "WEIGHTS_0": 4},
-            "indices": 2, "mode": 4,
-        }]}],
+        "meshes": [mesh_def],
         "skins": [{"name": "Armature",
                    "skeleton": J0,
                    "joints": list(range(J0, J0 + N_JOINTS)),

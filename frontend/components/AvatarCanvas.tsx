@@ -8,6 +8,9 @@ import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 import { driveSkeleton, driveHands } from "@/lib/poseSolver";
 
+// Set true once hands are confirmed working and ARKit→expr mapping is calibrated.
+const FACE_ENABLED = false;
+
 type Props = {
   glbUrl: string | null;
   loading: boolean;
@@ -15,6 +18,7 @@ type Props = {
   normLandmarksRef: RefObject<PoseLandmarks | null>;
   leftHandRef: RefObject<HandLandmarks | null>;
   rightHandRef: RefObject<HandLandmarks | null>;
+  faceBlendshapesRef: RefObject<number[] | null>;
   mirrorRef: RefObject<boolean>;
   webcamActive: boolean;
 };
@@ -37,6 +41,32 @@ const VIS_THRESHOLD      = 0.3;
 const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
 const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
+
+// Drives SMPL-X expression morph targets from ARKit blendshape scores.
+// Calibrate ARKIT_EXPR_WEIGHTS once FACE_ENABLED is set to true.
+// Format: { arkitCategoryName: [w0, w1, ..., w9] } — weights over 10 expression components.
+const ARKIT_EXPR_WEIGHTS: Record<string, number[]> = {
+  // All zeros — fill in after visual calibration.
+};
+
+function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): void {
+  const dict = mesh.morphTargetDictionary;
+  const inf  = mesh.morphTargetInfluences;
+  if (!dict || !inf) return;
+
+  const exprWeights = new Array(10).fill(0) as number[];
+  for (const [name, ws] of Object.entries(ARKIT_EXPR_WEIGHTS)) {
+    const idx = scores.findIndex((_, i) => i === scores.length); // placeholder — replace with category index lookup
+    void name; void ws; void idx; // unused until calibrated
+  }
+
+  for (let i = 0; i < 10; i++) {
+    const slotIdx = dict[`expr_${i}`];
+    if (slotIdx !== undefined) {
+      inf[slotIdx] += (exprWeights[i] - inf[slotIdx]) * 0.15;
+    }
+  }
+}
 
 // ── Virtual room ──────────────────────────────────────────────────────────────
 
@@ -85,14 +115,16 @@ type AvatarProps = {
   normLandmarksRef: RefObject<PoseLandmarks | null>;
   leftHandRef: RefObject<HandLandmarks | null>;
   rightHandRef: RefObject<HandLandmarks | null>;
+  faceBlendshapesRef: RefObject<number[] | null>;
   mirrorRef: RefObject<boolean>;
   webcamActive: boolean;
 };
 
-function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, mirrorRef, webcamActive }: AvatarProps) {
+function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, mirrorRef, webcamActive }: AvatarProps) {
   const { scene: gltfScene } = useGLTF(url);
   const { camera } = useThree();
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
+  const meshRef     = useRef<THREE.SkinnedMesh | null>(null);
 
   useMemo(() => {
     gltfScene.traverse((obj) => {
@@ -101,6 +133,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
         sm.material = BODY_MATERIAL;
         sm.castShadow = true;
         skeletonRef.current = sm.skeleton;
+        meshRef.current     = sm;
       }
     });
   }, [gltfScene]);
@@ -127,6 +160,10 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
       isMirror ? rightHandRef.current : leftHandRef.current,
       isMirror ? leftHandRef.current  : rightHandRef.current,
     );
+
+    if (FACE_ENABLED && meshRef.current && faceBlendshapesRef.current) {
+      driveMorphTargets(meshRef.current, faceBlendshapesRef.current);
+    }
 
     if (!webcamActive || !normLms || normLms.length < 33) return;
 
@@ -202,7 +239,7 @@ function PlaceholderFigure() {
 // ── Canvas ────────────────────────────────────────────────────────────────────
 
 export default function AvatarCanvas({
-  glbUrl, loading, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, mirrorRef, webcamActive,
+  glbUrl, loading, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, mirrorRef, webcamActive,
 }: Props) {
   return (
     <div className="relative w-full h-full">
@@ -229,6 +266,7 @@ export default function AvatarCanvas({
               normLandmarksRef={normLandmarksRef}
               leftHandRef={leftHandRef}
               rightHandRef={rightHandRef}
+              faceBlendshapesRef={faceBlendshapesRef}
               mirrorRef={mirrorRef}
               webcamActive={webcamActive}
             />

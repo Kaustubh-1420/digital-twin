@@ -9,6 +9,8 @@ const POSE_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
 const HAND_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
+const FACE_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
 export type Landmark = {
   x: number;
@@ -35,6 +37,9 @@ export function usePoseLandmarker() {
 
   const landmarkerRef     = useRef<import("@mediapipe/tasks-vision").PoseLandmarker | null>(null);
   const handLandmarkerRef = useRef<import("@mediapipe/tasks-vision").HandLandmarker | null>(null);
+  const faceLandmarkerRef = useRef<import("@mediapipe/tasks-vision").FaceLandmarker | null>(null);
+  // 52 ARKit blendshape scores in MediaPipe canonical order (null when face not detected)
+  const faceBlendshapesRef = useRef<number[] | null>(null);
   const videoRef          = useRef<HTMLVideoElement | null>(null);
   const rafRef            = useRef<number>(0);
   const filterRef         = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
@@ -46,11 +51,11 @@ export function usePoseLandmarker() {
     let cancelled = false;
     (async () => {
       try {
-        const { FilesetResolver, PoseLandmarker, HandLandmarker } = await import(
+        const { FilesetResolver, PoseLandmarker, HandLandmarker, FaceLandmarker } = await import(
           "@mediapipe/tasks-vision"
         );
         const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
-        const [lm, hlm] = await Promise.all([
+        const [lm, hlm, flm] = await Promise.all([
           PoseLandmarker.createFromOptions(vision, {
             baseOptions: { modelAssetPath: POSE_MODEL_URL },
             runningMode: "VIDEO",
@@ -62,12 +67,19 @@ export function usePoseLandmarker() {
             runningMode: "VIDEO",
             numHands: 2,
           }),
+          FaceLandmarker.createFromOptions(vision, {
+            baseOptions: { modelAssetPath: FACE_MODEL_URL },
+            runningMode: "VIDEO",
+            numFaces: 1,
+            outputFaceBlendshapes: true,
+          }),
         ]);
         if (!cancelled) {
-          landmarkerRef.current = lm;
+          landmarkerRef.current     = lm;
           handLandmarkerRef.current = hlm;
+          faceLandmarkerRef.current = flm;
           setReady(true);
-          console.log("[MediaPipe] pose + hand models ready");
+          console.log("[MediaPipe] pose + hand + face models ready");
         }
       } catch (e) {
         if (!cancelled)
@@ -135,6 +147,17 @@ export function usePoseLandmarker() {
               }
             });
           }
+
+          // Face blendshape detection
+          faceBlendshapesRef.current = null;
+          const fLm = faceLandmarkerRef.current;
+          if (fLm) {
+            const fResult = fLm.detectForVideo(video, ts);
+            const cats = fResult.faceBlendshapes?.[0]?.categories;
+            if (cats && cats.length > 0) {
+              faceBlendshapesRef.current = cats.map((c) => c.score);
+            }
+          }
         }
         rafRef.current = requestAnimationFrame(detect);
       };
@@ -156,11 +179,12 @@ export function usePoseLandmarker() {
     normLandmarksRef.current = null;
     leftHandRef.current = null;
     rightHandRef.current = null;
+    faceBlendshapesRef.current = null;
     filterRef.current = new LandmarksFilter(1.0, 0.3);
     leftHandFilterRef.current  = new LandmarksFilter(1.0, 0.3);
     rightHandFilterRef.current = new LandmarksFilter(1.0, 0.3);
     setActive(false);
   }, []);
 
-  return { ready, active, error, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, videoRef, start, stop };
+  return { ready, active, error, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, videoRef, start, stop };
 }
