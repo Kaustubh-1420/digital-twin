@@ -290,21 +290,25 @@ const _FINGER_TEMPLATE: Array<{
   finger: string; from: number; to: number; suffix: string;
   lx: number; ly: number; lz: number;
 }> = [
-  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal",   lx: 0.46, ly: 0.62, lz: -0.64 },
-  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal",     lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal",     lx: 0.82, ly: 0.54, lz: -0.20 },
-  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal",     lx: 0.86, ly: 0.50, lz: 0     },
-  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal",     lx: 0.83, ly: 0.52, lz: 0.20  },
-  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal",     lx: 0.78, ly: 0.58, lz: 0.22  },
-  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,    lz: 0     },
-  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal",       lx: 1,    ly: 0,    lz: 0     },
+  // Thumb metacarpal: Y-sign flipped from old calibration (old was in wrong Y-flipped space).
+  // All other proximals reset to (1,0,0) — with correct makeBasis the hand bone's X axis
+  // aligns with finger forward, so parent-local finger direction ≈ (1,0,0) at rest.
+  // Recalibrate all proximals from DEBUG_HANDS obsLocal logs at flat-hand T-pose.
+  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal",   lx: 0.46, ly: -0.62, lz: -0.64 },
+  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
+  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
 ];
 
 function _buildFingerCfgs(side: "Left" | "Right"): FingerBoneCfg[] {
@@ -320,7 +324,10 @@ function _buildFingerCfgs(side: "Left" | "Right"): FingerBoneCfg[] {
 const LEFT_FINGER_CFGS  = _buildFingerCfgs("Left");
 const RIGHT_FINGER_CFGS = _buildFingerCfgs("Right");
 
-const _LOG_HAND_BONES = new Set(["LeftIndexProximal", "LeftMiddleProximal", "LeftThumbMetacarpal"]);
+const _LOG_HAND_BONES = new Set([
+  "LeftThumbMetacarpal",
+  "LeftIndexProximal", "LeftMiddleProximal", "LeftRingProximal", "LeftLittleProximal",
+]);
 
 function _driveOneSide(
   bones: Map<string, THREE.Bone>,
@@ -328,8 +335,9 @@ function _driveOneSide(
   cfgs: FingerBoneCfg[],
   side: "Left" | "Right",
 ): void {
-  // Same Y-down → Y-up flip as body landmarks
-  const src = lms.map(lm => ({ x: lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
+  // HandLandmarker world landmarks are already Y-up (unlike PoseLandmarker which is Y-down).
+  // Only flip Z to match body space convention (away-from-camera = positive Z).
+  const src = lms.map(lm => ({ x: lm.x, y: lm.y, z: -lm.z, visibility: 1 }));
 
   // ── Drive Hand (wrist) bone from palm landmark frame ────────────────────────
   // Must run BEFORE finger loop so finger bones see correct parentWorldQ.
