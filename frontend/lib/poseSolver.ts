@@ -335,9 +335,9 @@ function _driveOneSide(
   cfgs: FingerBoneCfg[],
   side: "Left" | "Right",
 ): void {
-  // HandLandmarker world landmarks are already Y-up (unlike PoseLandmarker which is Y-down).
-  // Only flip Z to match body space convention (away-from-camera = positive Z).
-  const src = lms.map(lm => ({ x: lm.x, y: lm.y, z: -lm.z, visibility: 1 }));
+  // HandLandmarker world landmarks are Y-down (same as PoseLandmarker, camera-space convention).
+  // Flip both Y and Z to match body-space Y-up / away-from-camera +Z convention.
+  const src = lms.map(lm => ({ x: lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
 
   // ── Drive Hand (wrist) bone from palm landmark frame ────────────────────────
   // Must run BEFORE finger loop so finger bones see correct parentWorldQ.
@@ -361,10 +361,26 @@ function _driveOneSide(
       ks * (src[5].z - src[17].z),
     );
 
-    // palmNormal = knuckleLine × forward — perpendicular to palm surface
-    _hPalmN.crossVectors(_hKnuckle, _hForward).normalize();
+    // palmNormal = forward × knuckleLine — perpendicular to palm surface
+    // Order matters: Y-UP hand coords require forward×knuckle to get +Z (palm toward camera).
+    _hPalmN.crossVectors(_hForward, _hKnuckle).normalize();
     // Gram-Schmidt: sideAxis guaranteed ⊥ to both forward and palmNormal
     _hSide.crossVectors(_hForward, _hPalmN).normalize();
+
+    // DEBUG: log rest-pose local axes once so we know which column = finger direction
+    if (_dbgHandFrame === 1 && side === "Left") {
+      const q0 = new THREE.Quaternion(); handBone.getWorldQuaternion(q0);
+      console.log(`[HandDebug] ${side}Hand REST axes (world):`,
+        `X=${fv(new THREE.Vector3(1,0,0).applyQuaternion(q0))}`,
+        `Y=${fv(new THREE.Vector3(0,1,0).applyQuaternion(q0))}`,
+        `Z=${fv(new THREE.Vector3(0,0,1).applyQuaternion(q0))}`,
+      );
+    }
+
+    // DEBUG: sanity-check palm frame vectors every 60 frames
+    if (DEBUG_HANDS && _dbgHandFrame % 60 === 0 && side === "Left") {
+      console.log(`[HandDebug] frame=${_dbgHandFrame} ${side} hForward=${fv(_hForward)} hPalmN=${fv(_hPalmN)} hSide=${fv(_hSide)}`);
+    }
 
     // Build world quaternion from orthonormal hand frame
     _hMat.makeBasis(_hForward, _hPalmN, _hSide);
