@@ -125,6 +125,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
   const { camera } = useThree();
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
   const meshRef     = useRef<THREE.SkinnedMesh | null>(null);
+  const bindLoggedRef = useRef(false);
 
   useMemo(() => {
     gltfScene.traverse((obj) => {
@@ -134,6 +135,20 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
         sm.castShadow = true;
         skeletonRef.current = sm.skeleton;
         meshRef.current     = sm;
+
+        if (!bindLoggedRef.current) {
+          bindLoggedRef.current = true;
+          const HAND_RE = /Hand|Thumb|Index|Middle|Ring|Little|Pinky/;
+          const rows = sm.skeleton.bones
+            .filter((b) => HAND_RE.test(b.name))
+            .map((b) => ({
+              name: b.name,
+              q: b.quaternion.toArray().map((n) => +n.toFixed(4)),
+              pos: b.position.toArray().map((n) => +n.toFixed(4)),
+              order: b.rotation.order,
+            }));
+          console.log("[BindPose] hand+finger bones (BEFORE driving):", rows);
+        }
       }
     });
   }, [gltfScene]);

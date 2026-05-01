@@ -280,44 +280,74 @@ const HMP = {
   PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20,
 } as const;
 
-type FingerBoneCfg = { name: string; from: number; to: number; restDir: THREE.Vector3 };
+type FingerBoneCfg = { name: string; from: number; to: number };
 
-// Proximal bone rests calibrated from DEBUG_HANDS obsLocal at flat open hand (left hand,
-// frames 120-240). Intermediate/Distal stay at (1,0,0) in parent-local — correct once
-// proximal is oriented. Right side mirrors X; Z kept same sign (needs separate calibration).
-// Ring/Pinky proximal Z estimated from anatomical splay pattern (index=-0.20, middle=0, ring=+0.20).
+// Structural map only — REST directions are derived from the GLB's actual bind pose
+// (bone.children[0].position) at first lookup, not hardcoded. See _getFingerRest.
 const _FINGER_TEMPLATE: Array<{
   finger: string; from: number; to: number; suffix: string;
-  lx: number; ly: number; lz: number;
 }> = [
-  // Proximal REST dirs calibrated 2026-05-01 from DEBUG_HANDS obsLocal averaged across
-  // frames 120/180/240/300 (palm to camera, left hand extended). Setting REST = observed-at-rest
-  // makes setFromUnitVectors(rest, obs) ≈ identity at flat hand → fingers stay straight at rest.
-  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal",   lx: 0.77, ly: -0.43, lz: 0.45 },
-  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal",     lx: 0.94, ly: -0.27, lz: 0.05 },
-  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal",     lx: 0.93, ly: -0.36, lz: -0.07 },
-  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal",     lx: 0.88, ly: -0.46, lz: -0.07 },
-  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal",     lx: 0.85, ly: -0.23, lz: -0.40 },
-  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
-  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal"   },
+  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal"     },
+  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal"       },
+  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal"     },
+  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate" },
+  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal"       },
+  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal"     },
+  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate" },
+  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal"       },
+  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal"     },
+  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate" },
+  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal"       },
+  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal"     },
+  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate" },
+  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal"       },
 ];
 
 function _buildFingerCfgs(side: "Left" | "Right"): FingerBoneCfg[] {
-  const sx = side === "Left" ? 1 : -1;
   return _FINGER_TEMPLATE.map(t => ({
-    name:    `${side}${t.finger}${t.suffix}`,
-    from:    t.from,
-    to:      t.to,
-    restDir: R(sx * t.lx, t.ly, t.lz),
+    name: `${side}${t.finger}${t.suffix}`,
+    from: t.from,
+    to:   t.to,
   }));
+}
+
+// REST = direction this bone points toward its child at bind, in parent-local space.
+// All SMPL-X finger bind quaternions are identity (verified 2026-05-02), so the child's
+// `.position` normalized IS the parent's local-space bind direction. Tip bones (Distal)
+// have no child — they inherit the parent's REST as a continuation-of-curl approximation.
+// WeakMap keyed by bone reference: when a new GLB loads, old bones are GC'd and their
+// cache entries vanish automatically.
+const _fingerRestCache = new WeakMap<THREE.Bone, THREE.Vector3>();
+
+function _getFingerRest(bone: THREE.Bone): THREE.Vector3 {
+  const cached = _fingerRestCache.get(bone);
+  if (cached) return cached;
+  let dir: THREE.Vector3;
+  const child = bone.children[0] as THREE.Bone | undefined;
+  if (child) {
+    dir = child.position.clone().normalize();
+  } else {
+    // Tip bone (no child): extrapolate the curl arc from grandparent→parent→tip.
+    // Bind quats are identity for the SMPL-X hand chain, so all local frames are
+    // parallel — vectors compose across them without frame conversion. Naively
+    // copying the parent's REST gives Q=identity at straight finger, leaving the
+    // tip stuck at bind-pose curl ("hooked fingertip" symptom).
+    const parent = bone.parent as THREE.Bone | null;
+    const gp = parent?.parent as THREE.Bone | null;
+    const restP  = bone.position.lengthSq() > 1e-10 ? bone.position.clone().normalize() : null;
+    const restGP = gp?.children[0]?.position.clone().normalize();
+    if (restP && restGP) {
+      const Q_curl = new THREE.Quaternion().setFromUnitVectors(restGP, restP);
+      dir = restP.clone().applyQuaternion(Q_curl);
+    } else if (restP) {
+      dir = restP;
+    } else {
+      dir = new THREE.Vector3(1, 0, 0);
+    }
+  }
+  _fingerRestCache.set(bone, dir);
+  return dir;
 }
 
 const LEFT_FINGER_CFGS  = _buildFingerCfgs("Left");
@@ -420,14 +450,15 @@ function _driveOneSide(
     if (bone.parent) bone.parent.getWorldQuaternion(_parentWorldQ);
     _q1.copy(_parentWorldQ).invert();
     _v1.set(dx/len, dy/len, dz/len).applyQuaternion(_q1);
-    _localQ.setFromUnitVectors(cfg.restDir, _v1);
+    const restDir = _getFingerRest(bone);
+    _localQ.setFromUnitVectors(restDir, _v1);
 
     if (logHand && _LOG_HAND_BONES.has(cfg.name)) {
       console.log(
         `[HandSolver] frame=${_dbgHandFrame} ${cfg.name.padEnd(22)}`,
         `obsWorld=(${(dx/len).toFixed(3)},${(dy/len).toFixed(3)},${(dz/len).toFixed(3)})`,
         `obsLocal=${fv(_v1)}`,
-        `rest=${fv(cfg.restDir)}`,
+        `rest=${fv(restDir)}`,
         `→ ${fq(_localQ)}`,
       );
     }
