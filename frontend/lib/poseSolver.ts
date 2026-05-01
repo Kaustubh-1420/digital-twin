@@ -290,25 +290,24 @@ const _FINGER_TEMPLATE: Array<{
   finger: string; from: number; to: number; suffix: string;
   lx: number; ly: number; lz: number;
 }> = [
-  // Thumb metacarpal: Y-sign flipped from old calibration (old was in wrong Y-flipped space).
-  // All other proximals reset to (1,0,0) — with correct makeBasis the hand bone's X axis
-  // aligns with finger forward, so parent-local finger direction ≈ (1,0,0) at rest.
-  // Recalibrate all proximals from DEBUG_HANDS obsLocal logs at flat-hand T-pose.
-  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal",   lx: 0.46, ly: -0.62, lz: -0.64 },
-  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0     },
-  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0     },
+  // Proximal REST dirs calibrated 2026-05-01 from DEBUG_HANDS obsLocal averaged across
+  // frames 120/180/240/300 (palm to camera, left hand extended). Setting REST = observed-at-rest
+  // makes setFromUnitVectors(rest, obs) ≈ identity at flat hand → fingers stay straight at rest.
+  { finger: "Thumb",  from: HMP.THUMB_CMC,  to: HMP.THUMB_MCP,  suffix: "Metacarpal",   lx: 0.77, ly: -0.43, lz: 0.45 },
+  { finger: "Thumb",  from: HMP.THUMB_MCP,  to: HMP.THUMB_IP,   suffix: "Proximal",     lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Thumb",  from: HMP.THUMB_IP,   to: HMP.THUMB_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Index",  from: HMP.INDEX_MCP,  to: HMP.INDEX_PIP,  suffix: "Proximal",     lx: 0.94, ly: -0.27, lz: 0.05 },
+  { finger: "Index",  from: HMP.INDEX_PIP,  to: HMP.INDEX_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Index",  from: HMP.INDEX_DIP,  to: HMP.INDEX_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Middle", from: HMP.MIDDLE_MCP, to: HMP.MIDDLE_PIP, suffix: "Proximal",     lx: 0.93, ly: -0.36, lz: -0.07 },
+  { finger: "Middle", from: HMP.MIDDLE_PIP, to: HMP.MIDDLE_DIP, suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Middle", from: HMP.MIDDLE_DIP, to: HMP.MIDDLE_TIP, suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Ring",   from: HMP.RING_MCP,   to: HMP.RING_PIP,   suffix: "Proximal",     lx: 0.88, ly: -0.46, lz: -0.07 },
+  { finger: "Ring",   from: HMP.RING_PIP,   to: HMP.RING_DIP,   suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Ring",   from: HMP.RING_DIP,   to: HMP.RING_TIP,   suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Little", from: HMP.PINKY_MCP,  to: HMP.PINKY_PIP,  suffix: "Proximal",     lx: 0.85, ly: -0.23, lz: -0.40 },
+  { finger: "Little", from: HMP.PINKY_PIP,  to: HMP.PINKY_DIP,  suffix: "Intermediate", lx: 1,    ly: 0,     lz: 0    },
+  { finger: "Little", from: HMP.PINKY_DIP,  to: HMP.PINKY_TIP,  suffix: "Distal",       lx: 1,    ly: 0,     lz: 0    },
 ];
 
 function _buildFingerCfgs(side: "Left" | "Right"): FingerBoneCfg[] {
@@ -361,9 +360,10 @@ function _driveOneSide(
       ks * (src[5].z - src[17].z),
     );
 
-    // palmNormal = forward × knuckleLine — perpendicular to palm surface
-    // Order matters: Y-UP hand coords require forward×knuckle to get +Z (palm toward camera).
-    _hPalmN.crossVectors(_hForward, _hKnuckle).normalize();
+    // palmNormal = knuckle × forward — perpendicular to palm surface, points toward camera.
+    // Empirically derived 2026-05-01 from hPalmN log: forward×knuckle gave -Z (away from camera)
+    // when user's palm faced camera; knuckle×forward gives +Z (toward camera) as required.
+    _hPalmN.crossVectors(_hKnuckle, _hForward).normalize();
     // Gram-Schmidt: sideAxis guaranteed ⊥ to both forward and palmNormal
     _hSide.crossVectors(_hForward, _hPalmN).normalize();
 
@@ -391,6 +391,12 @@ function _driveOneSide(
     if (handBone.parent) handBone.parent.getWorldQuaternion(_hParentQ);
     _hLocalQ.copy(_hParentQ).invert().multiply(_hWorldQ);
 
+    // Quaternion hemisphere check: if the new target lies in the opposite hemisphere from the
+    // current bone quaternion, slerp would take the LONG way around (the "balloon twist" symptom).
+    // Negating all 4 components yields the same rotation but in the matching hemisphere.
+    if (handBone.quaternion.dot(_hLocalQ) < 0) {
+      _hLocalQ.set(-_hLocalQ.x, -_hLocalQ.y, -_hLocalQ.z, -_hLocalQ.w);
+    }
     handBone.quaternion.slerp(_hLocalQ, 0.4);
     handBone.updateWorldMatrix(false, true); // propagate to finger children
   }
