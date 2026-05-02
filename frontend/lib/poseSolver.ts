@@ -445,10 +445,11 @@ function _driveOneSide(
     }
 
     // Build world quaternion from orthonormal hand frame.
-    // Right arm REST=R(-1,0,0) makes its local X point OPPOSITE to the arm/finger direction,
-    // anti-parallel to hForward. Negate hForward+hSide so local X aligns with the arm axis,
-    // requiring only a small local rotation (same logic that makes left arm work).
-    if (side === "Right") { _hForward.negate(); _hSide.negate(); }
+    // Right arm REST=R(-1,0,0) makes its local X anti-parallel to hForward.
+    // Negate hForward so local X aligns with the arm axis (small local rotation).
+    // Also negate hPalmN so dorsum points AWAY from camera (-Z), matching left hand.
+    // hSide = (-forward) × (-palmN) = forward × palmN = unchanged.
+    if (side === "Right") { _hForward.negate(); _hPalmN.negate(); }
     _hMat.makeBasis(_hForward, _hPalmN, _hSide);
     _hWorldQ.setFromRotationMatrix(_hMat);
 
@@ -467,7 +468,7 @@ function _driveOneSide(
     _hLocalQ.copy(_hParentQ).invert().multiply(_hWorldQ);
 
     // DEBUG: log every hemisphere flip and every-60-frame palmN.z to diagnose balloon twist.
-    // palmN.z should be >0 when palm faces camera. dot<0 before the negate triggers the long-arc path.
+    // palmN.z should be <0 when palm faces camera (dorsum faces away = -Z in body-space convention).
     if (DEBUG_HANDS) {
       const dot = handBone.quaternion.dot(_hLocalQ);
       if (dot < 0) {
