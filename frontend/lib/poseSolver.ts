@@ -408,14 +408,13 @@ function _driveOneSide(
       src[9].z - src[0].z,
     ).normalize();
 
-    // knuckleLine: index_mcp - pinky_mcp (left) or pinky_mcp - index_mcp (right)
-    // Nearly ⊥ to forward → stable cross product for palm normal.
-    // Sign flips per hand so palm normal consistently points out of palm.
-    const ks = side === "Left" ? 1 : -1;
+    // knuckleLine: index_mcp - pinky_mcp (same for both hands).
+    // Both hands share camera world space — no per-hand sign flip needed.
+    // index_mcp is always on the thumb-side, so this vector + hForward gives palmN toward camera.
     _hKnuckle.set(
-      ks * (src[5].x - src[17].x),
-      ks * (src[5].y - src[17].y),
-      ks * (src[5].z - src[17].z),
+      src[5].x - src[17].x,
+      src[5].y - src[17].y,
+      src[5].z - src[17].z,
     );
 
     // palmNormal = knuckle × forward — perpendicular to palm surface, points toward camera.
@@ -436,11 +435,20 @@ function _driveOneSide(
     }
 
     // DEBUG: sanity-check palm frame vectors every 60 frames
-    if (DEBUG_HANDS && _dbgHandFrame % 60 === 0 && side === "Left") {
+    if (DEBUG_HANDS && _dbgHandFrame % 60 === 0) {
       console.log(`[HandDebug] frame=${_dbgHandFrame} ${side} hForward=${fv(_hForward)} hPalmN=${fv(_hPalmN)} hSide=${fv(_hSide)}`);
+      // Log arm parent world axes to diagnose asymmetry in local euler angles
+      const _armX = new THREE.Vector3(1,0,0).applyQuaternion(_pureArmWorldQ[side]);
+      const _armY = new THREE.Vector3(0,1,0).applyQuaternion(_pureArmWorldQ[side]);
+      const _armZ = new THREE.Vector3(0,0,1).applyQuaternion(_pureArmWorldQ[side]);
+      console.log(`[ArmDebug] frame=${_dbgHandFrame} ${side}LowerArm world axes: X=${fv(_armX)} Y=${fv(_armY)} Z=${fv(_armZ)}`);
     }
 
-    // Build world quaternion from orthonormal hand frame
+    // Build world quaternion from orthonormal hand frame.
+    // Right arm REST=R(-1,0,0) makes its local X point OPPOSITE to the arm/finger direction,
+    // anti-parallel to hForward. Negate hForward+hSide so local X aligns with the arm axis,
+    // requiring only a small local rotation (same logic that makes left arm work).
+    if (side === "Right") { _hForward.negate(); _hSide.negate(); }
     _hMat.makeBasis(_hForward, _hPalmN, _hSide);
     _hWorldQ.setFromRotationMatrix(_hMat);
 
@@ -460,14 +468,14 @@ function _driveOneSide(
 
     // DEBUG: log every hemisphere flip and every-60-frame palmN.z to diagnose balloon twist.
     // palmN.z should be >0 when palm faces camera. dot<0 before the negate triggers the long-arc path.
-    if (DEBUG_HANDS && side === "Left") {
+    if (DEBUG_HANDS) {
       const dot = handBone.quaternion.dot(_hLocalQ);
       if (dot < 0) {
-        console.log(`[WristTwist] frame=${_dbgHandFrame} FLIP dot=${dot.toFixed(3)} palmN.z=${_hPalmN.z.toFixed(3)} hPalmN=${fv(_hPalmN)}`);
+        console.log(`[WristTwist] frame=${_dbgHandFrame} ${side} FLIP dot=${dot.toFixed(3)} palmN.z=${_hPalmN.z.toFixed(3)} hPalmN=${fv(_hPalmN)}`);
       }
       if (_dbgHandFrame % 60 === 0) {
         const _eu = new THREE.Euler().setFromQuaternion(_hLocalQ, 'XYZ');
-        console.log(`[WristTwist] frame=${_dbgHandFrame} palmN.z=${_hPalmN.z.toFixed(3)} dot=${dot.toFixed(3)} localEuler=(${(_eu.x*180/Math.PI).toFixed(1)}°,${(_eu.y*180/Math.PI).toFixed(1)}°,${(_eu.z*180/Math.PI).toFixed(1)}°)`);
+        console.log(`[WristTwist] frame=${_dbgHandFrame} ${side} palmN.z=${_hPalmN.z.toFixed(3)} dot=${dot.toFixed(3)} localEuler=(${(_eu.x*180/Math.PI).toFixed(1)}°,${(_eu.y*180/Math.PI).toFixed(1)}°,${(_eu.z*180/Math.PI).toFixed(1)}°)`);
       }
     }
 
