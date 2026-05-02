@@ -421,6 +421,19 @@ function _driveOneSide(
     if (handBone.parent) handBone.parent.getWorldQuaternion(_hParentQ);
     _hLocalQ.copy(_hParentQ).invert().multiply(_hWorldQ);
 
+    // DEBUG: log every hemisphere flip and every-60-frame palmN.z to diagnose balloon twist.
+    // palmN.z should be >0 when palm faces camera. dot<0 before the negate triggers the long-arc path.
+    if (DEBUG_HANDS && side === "Left") {
+      const dot = handBone.quaternion.dot(_hLocalQ);
+      if (dot < 0) {
+        console.log(`[WristTwist] frame=${_dbgHandFrame} FLIP dot=${dot.toFixed(3)} palmN.z=${_hPalmN.z.toFixed(3)} hPalmN=${fv(_hPalmN)}`);
+      }
+      if (_dbgHandFrame % 60 === 0) {
+        const _eu = new THREE.Euler().setFromQuaternion(_hLocalQ, 'XYZ');
+        console.log(`[WristTwist] frame=${_dbgHandFrame} palmN.z=${_hPalmN.z.toFixed(3)} dot=${dot.toFixed(3)} localEuler=(${(_eu.x*180/Math.PI).toFixed(1)}°,${(_eu.y*180/Math.PI).toFixed(1)}°,${(_eu.z*180/Math.PI).toFixed(1)}°)`);
+      }
+    }
+
     // Quaternion hemisphere check: if the new target lies in the opposite hemisphere from the
     // current bone quaternion, slerp would take the LONG way around (the "balloon twist" symptom).
     // Negating all 4 components yields the same rotation but in the matching hemisphere.
