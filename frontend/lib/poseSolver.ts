@@ -116,17 +116,22 @@ const _hLocalQ  = new THREE.Quaternion();
 
 // Forearm-twist redistribution: bleed a fraction of wrist twist (around forearm long axis)
 // out of the Hand bone and into the LowerArm bone, to relieve LBS mesh collapse at the wrist.
-// driveHands writes the *target* twist; driveSkeleton reads it when SLERPing LowerArm.
-// Both functions rebuild from scratch each frame — no feedback accumulation (cf. session 21).
+// driveSkeleton writes _pureArmWorldQ (swing-only, before twist injection) so driveHands can
+// extract the TRUE total pronation twist rather than the residual left after last frame's bleed.
+// driveHands writes _desiredForearmTwist; driveSkeleton reads it when driving LowerArm.
 const FOREARM_TWIST_FRACTION = 0.5;
 const _desiredForearmTwist = {
   Left:  new THREE.Quaternion(),
   Right: new THREE.Quaternion(),
 };
-const _qTwistX     = new THREE.Quaternion();
-const _qFaTwist    = new THREE.Quaternion();
-const _qFaTwistInv = new THREE.Quaternion();
-const _identityQ   = new THREE.Quaternion();
+// Pure-swing LowerArm world Q (no forearm twist) — written by driveSkeleton, read by driveHands.
+const _pureArmWorldQ = {
+  Left:  new THREE.Quaternion(),
+  Right: new THREE.Quaternion(),
+};
+const _qTwistX  = new THREE.Quaternion();
+const _qFaTwist = new THREE.Quaternion();
+const _identityQ = new THREE.Quaternion();
 
 function landmarkOk(lms: PoseLandmarks, idx: number): boolean {
   const vis = lms[idx]?.visibility;
@@ -269,8 +274,12 @@ export function driveSkeleton(
       }
     }
 
+    // Snapshot pure-swing LowerArm world Q (before twist injection) so driveHands can
+    // extract the true total pronation against an uncontaminated parent frame.
+    if (cfg.name === "LeftLowerArm")  _pureArmWorldQ.Left.copy(_parentWorldQ).multiply(_localQ);
+    if (cfg.name === "RightLowerArm") _pureArmWorldQ.Right.copy(_parentWorldQ).multiply(_localQ);
+
     // Post-multiply forearm-twist target into LowerArm local rotation (around its X = long axis).
-    // Target is rebuilt from scratch each frame as swing × twist, so there's no feedback loop.
     if (cfg.name === "LeftLowerArm")  _localQ.multiply(_desiredForearmTwist.Left);
     if (cfg.name === "RightLowerArm") _localQ.multiply(_desiredForearmTwist.Right);
 
@@ -435,20 +444,19 @@ function _driveOneSide(
     _hMat.makeBasis(_hForward, _hPalmN, _hSide);
     _hWorldQ.setFromRotationMatrix(_hMat);
 
-    // Express in parent-local space (parent = LowerArm bone)
-    _hParentQ.identity();
-    if (handBone.parent) handBone.parent.getWorldQuaternion(_hParentQ);
-    _hLocalQ.copy(_hParentQ).invert().multiply(_hWorldQ);
-
-    // Swing-twist decompose _hLocalQ around X (forearm long axis in LowerArm-local frame).
-    // Bleed FOREARM_TWIST_FRACTION of the twist onto the LowerArm bone (read by driveSkeleton),
-    // then pre-multiply hand by inverse of that bleed so the wrist's WORLD orientation is preserved.
-    // World wrist target = parentWorld · q_fa_twist · (q_fa_twist⁻¹ · _hLocalQ_orig) = parentWorld · _hLocalQ_orig.
+    // Extract twist against PURE-SWING LowerArm world Q (written by driveSkeleton this frame,
+    // before forearm-twist injection). Using the actual bone's world Q would include last frame's
+    // accumulated twist, shrinking the extracted amount each frame and converging to wrong equilibrium.
+    _hLocalQ.copy(_pureArmWorldQ[side]).invert().multiply(_hWorldQ);
     _qTwistX.set(_hLocalQ.x, 0, 0, _hLocalQ.w).normalize();
     _qFaTwist.copy(_identityQ).slerp(_qTwistX, FOREARM_TWIST_FRACTION);
     _desiredForearmTwist[side].copy(_qFaTwist);
-    _qFaTwistInv.copy(_qFaTwist).invert();
-    _hLocalQ.premultiply(_qFaTwistInv);
+
+    // Back-project hand local Q from world target against the ACTUAL (with-twist) parent.
+    // This guarantees world hand = _hWorldQ exactly every frame — no compensation term needed.
+    _hParentQ.identity();
+    if (handBone.parent) handBone.parent.getWorldQuaternion(_hParentQ);
+    _hLocalQ.copy(_hParentQ).invert().multiply(_hWorldQ);
 
     // DEBUG: log every hemisphere flip and every-60-frame palmN.z to diagnose balloon twist.
     // palmN.z should be >0 when palm faces camera. dot<0 before the negate triggers the long-arc path.
