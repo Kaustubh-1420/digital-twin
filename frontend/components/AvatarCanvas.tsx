@@ -7,9 +7,9 @@ import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 import { driveSkeleton, driveHands } from "@/lib/poseSolver";
+import { EXPR_W } from "@/lib/exprMapping";
 
-// Set true once hands are confirmed working and ARKit→expr mapping is calibrated.
-const FACE_ENABLED = false;
+const FACE_ENABLED = true;
 
 type Props = {
   glbUrl: string | null;
@@ -42,28 +42,18 @@ const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
 const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
 
-// Drives SMPL-X expression morph targets from ARKit blendshape scores.
-// Calibrate ARKIT_EXPR_WEIGHTS once FACE_ENABLED is set to true.
-// Format: { arkitCategoryName: [w0, w1, ..., w9] } — weights over 10 expression components.
-const ARKIT_EXPR_WEIGHTS: Record<string, number[]> = {
-  // All zeros — fill in after visual calibration.
-};
-
 function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): void {
   const dict = mesh.morphTargetDictionary;
   const inf  = mesh.morphTargetInfluences;
   if (!dict || !inf) return;
 
-  const exprWeights = new Array(10).fill(0) as number[];
-  for (const [name, ws] of Object.entries(ARKIT_EXPR_WEIGHTS)) {
-    const idx = scores.findIndex((_, i) => i === scores.length); // placeholder — replace with category index lookup
-    void name; void ws; void idx; // unused until calibrated
-  }
-
-  for (let i = 0; i < 10; i++) {
+  // scores (52,) @ EXPR_W (52×100) → expr params (100,)
+  for (let i = 0; i < 100; i++) {
+    let v = 0;
+    for (let j = 0; j < 52; j++) v += scores[j] * EXPR_W[j][i];
     const slotIdx = dict[`expr_${i}`];
     if (slotIdx !== undefined) {
-      inf[slotIdx] += (exprWeights[i] - inf[slotIdx]) * 0.15;
+      inf[slotIdx] += (v - inf[slotIdx]) * 0.15;
     }
   }
 }
