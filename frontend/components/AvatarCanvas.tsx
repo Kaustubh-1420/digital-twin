@@ -42,20 +42,37 @@ const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
 const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
 
+let _faceDbgFrame = 0;
 function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): void {
   const dict = mesh.morphTargetDictionary;
   const inf  = mesh.morphTargetInfluences;
   if (!dict || !inf) return;
 
+  // [FaceDebug] — fires on frame 0 and every 90 frames (~1.5s)
+  const dbg = (_faceDbgFrame % 90 === 0);
+  if (dbg) {
+    const nMorphs = Object.keys(dict).filter(k => k.startsWith("expr_")).length;
+    const top5bs  = scores.map((s,i) => [i,s] as [number,number]).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    console.log(`[FaceDebug] frame=${_faceDbgFrame} morphsInGLB=${nMorphs} top5bs=${JSON.stringify(top5bs)}`);
+  }
+
+  const exprVals: number[] = [];
   // scores (52,) @ EXPR_W (52×100) → expr params (100,)
   for (let i = 0; i < 100; i++) {
     let v = 0;
     for (let j = 0; j < 52; j++) v += scores[j] * EXPR_W[j][i];
+    exprVals.push(v);
     const slotIdx = dict[`expr_${i}`];
     if (slotIdx !== undefined) {
       inf[slotIdx] += (v - inf[slotIdx]) * 0.15;
     }
   }
+
+  if (dbg) {
+    const top5expr = exprVals.map((v,i) => [i,v] as [number,number]).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,5);
+    console.log(`[FaceDebug] top5exprDims=${JSON.stringify(top5expr)}`);
+  }
+  _faceDbgFrame++;
 }
 
 // ── Virtual room ──────────────────────────────────────────────────────────────
