@@ -42,6 +42,11 @@ const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
 const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
 
+// Blendshape indices driven by jaw/eye bones — skip these in the expression PCA matrix
+// to prevent cross-talk (jaw open triggering wild mouth expression deformations)
+// Keep: brow (1-8), eyeLook (11-18), eyeSquint/Wide (19-22), noseSneer (50-51)
+const BONE_DRIVEN_BS = new Set([9, 10, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+
 const NEUTRAL_CALIB_FRAMES = 30;
 const _neutralAccum: number[] = new Array(52).fill(0);
 let _neutralCount = 0;
@@ -74,10 +79,14 @@ function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): number[] 
   }
 
   // calibrated (52,) @ EXPR_W (52×100) → expr params (100,)
+  // Bone-driven indices are excluded to prevent jaw/mouth cross-talk
   const exprVals: number[] = [];
   for (let i = 0; i < 100; i++) {
     let v = 0;
-    for (let j = 0; j < 52; j++) v += calibrated[j] * EXPR_W[j][i];
+    for (let j = 0; j < 52; j++) {
+      if (BONE_DRIVEN_BS.has(j)) continue;
+      v += calibrated[j] * EXPR_W[j][i];
+    }
     exprVals.push(v);
     const slotIdx = dict[`expr_${i}`];
     if (slotIdx !== undefined) {
