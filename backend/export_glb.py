@@ -8,8 +8,8 @@ import tempfile
 import numpy as np
 import torch
 
-# SMPL-X joint indices we export: body (0-21) + hands (25-54); skip jaw(22) eyes(23,24)
-_SMPLX_COLS = list(range(22)) + list(range(25, 55))  # 52 joints total
+# SMPL-X joint indices we export: body (0-21) + hands (25-54) + jaw(22) + eyes(23,24)
+_SMPLX_COLS = list(range(22)) + list(range(25, 55)) + [22, 23, 24]  # 55 joints total
 
 # ── Joint names in GLB order (indices into _SMPLX_COLS) ──────────────────────
 
@@ -33,6 +33,8 @@ _JOINT_NAMES = [
     'right_pinky1', 'right_pinky2', 'right_pinky3',
     'right_ring1', 'right_ring2', 'right_ring3',
     'right_thumb1', 'right_thumb2', 'right_thumb3',
+    # face (52-54) — SMPL-X joints 22-24, appended to keep hand indices stable
+    'jaw', 'left_eye_ball', 'right_eye_ball',
 ]
 
 _PARENTS = [
@@ -91,6 +93,10 @@ _PARENTS = [
     21,  # 49 right_thumb1
     49,  # 50 right_thumb2
     50,  # 51 right_thumb3
+    # face — all parent to head (15)
+    15,  # 52 jaw
+    15,  # 53 left_eye_ball
+    15,  # 54 right_eye_ball
 ]
 
 # VRM 1.0 humanoid bone names
@@ -150,6 +156,10 @@ _VRM_NAMES = {
     'right_thumb1':   'RightThumbMetacarpal',
     'right_thumb2':   'RightThumbProximal',
     'right_thumb3':   'RightThumbDistal',
+    # face
+    'jaw':            'Jaw',
+    'left_eye_ball':  'LeftEye',
+    'right_eye_ball': 'RightEye',
 }
 
 N_JOINTS = len(_JOINT_NAMES)  # 52
@@ -168,10 +178,10 @@ def _top4_weights(lbs_weights, vertices=None, joint_positions=None):
     """
     lbs_weights:     (N, 55) float32 — SMPL-X LBS weights (all 55 joints)
     vertices:        (N, 3)  float32 — T-pose vertex positions
-    joint_positions: (52, 3) float32 — T-pose joint positions for exported joints
+    joint_positions: (55, 3) float32 — T-pose joint positions for exported joints
 
-    We export 52 of 55 joints (skip jaw=22, eyes=23,24). Vertices whose summed weight
-    on the 52 exported joints is < 0.3 (jaw/eye verts) are clamped to nearest joint.
+    We export all 55 joints. Vertices whose summed weight on exported joints is < 0.3
+    are clamped to nearest joint (guards against any unexpected zero-weight verts).
     """
     w = np.asarray(lbs_weights[:, _SMPLX_COLS], dtype=np.float32).copy()
 
