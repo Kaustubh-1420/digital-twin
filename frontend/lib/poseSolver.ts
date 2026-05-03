@@ -91,6 +91,7 @@ const NECK_BONES  = new Set(["Neck"]);
 // ── Module-level state ────────────────────────────────────────────────────────
 
 const _prevBoneQ = new Map<string, THREE.Quaternion>();
+let _mirrorMode = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -175,10 +176,13 @@ export function driveSkeleton(
 ): void {
   // MediaPipe world landmarks are Y-DOWN (camera/OpenCV convention).
   // Negate Y and Z to convert to Y-UP OpenGL space matching our REST directions.
+  // In mirror mode, also negate X so that direction vectors point the right way
+  // after BONE_CFGS_MIRROR swaps which side's landmarks drive each bone.
   const src: PoseLandmarks = lms.map(lm => ({
     x: lm.x, y: -lm.y, z: -lm.z, visibility: lm.visibility,
   }));
 
+  _mirrorMode = mirror;
   _dbgFrame++;
   const logFrame = DEBUG_POSE && _dbgFrame % 30 === 1; // log every 30th frame
   const logFirst = DEBUG_POSE && _dbgFrame <= 3;       // log first 3 frames always
@@ -191,9 +195,13 @@ export function driveSkeleton(
   const shoulderMid = midpoint(src, MP.LEFT_SHOULDER, MP.RIGHT_SHOULDER);
   // spineDir = direction from hip origin to shoulderMid.
   const spineDir = shoulderMid.clone().normalize();
+  if (mirror) spineDir.x *= -1;
   // neckDir = direction from shoulderMid to nose — drives head turn/tilt.
   const nosePos  = new THREE.Vector3(src[MP.NOSE].x, src[MP.NOSE].y, src[MP.NOSE].z);
   const neckDir  = nosePos.clone().sub(shoulderMid).normalize();
+  // In mirror mode, zero out horizontal nose component so swing only drives nod (up/down).
+  // Horizontal head rotation (turn left/right) is handled entirely by the ear twist below.
+  if (mirror) { neckDir.x = 0; neckDir.normalize(); }
 
   if (logFrame || logFirst) {
     console.group(`[PoseSolver] frame=${_dbgFrame} mirror=${mirror}`);
@@ -221,7 +229,10 @@ export function driveSkeleton(
     let observed: THREE.Vector3;
     if (SPINE_BONES.has(cfg.name))      observed = spineDir;
     else if (NECK_BONES.has(cfg.name))  observed = neckDir;
-    else                                observed = lmDir(src, cfg.from, cfg.to);
+    else {
+      observed = lmDir(src, cfg.from, cfg.to);
+      if (mirror) observed.x *= -1;
+    }
 
     // Swing-decompose in parent-local space.
     // Computing worldQ first (setFromUnitVectors against static restDir) is WRONG
@@ -394,7 +405,7 @@ function _driveOneSide(
 ): void {
   // HandLandmarker world landmarks are Y-down (same as PoseLandmarker, camera-space convention).
   // Flip both Y and Z to match body-space Y-up / away-from-camera +Z convention.
-  const src = lms.map(lm => ({ x: lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
+  const src = lms.map(lm => ({ x: _mirrorMode ? -lm.x : lm.x, y: -lm.y, z: -lm.z, visibility: 1 }));
 
   // ── Drive Hand (wrist) bone from palm landmark frame ────────────────────────
   // Must run BEFORE finger loop so finger bones see correct parentWorldQ.
