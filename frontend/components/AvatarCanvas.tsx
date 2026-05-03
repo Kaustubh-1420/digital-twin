@@ -171,11 +171,7 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
     const lms     = landmarksRef.current;
     const normLms = normLandmarksRef.current;
     const sk      = skeletonRef.current;
-    if (!lms || !sk || lms.length < 33) {
-      if (Math.random() < 0.01)
-        console.log("[AvatarCanvas] bail: lms=", lms ? lms.length : null, "sk=", !!sk);
-      return;
-    }
+    if (!lms || !sk || lms.length < 33) return;
     const isMirror = mirrorRef.current;
     driveSkeleton(sk, lms, isMirror);
     driveHands(sk,

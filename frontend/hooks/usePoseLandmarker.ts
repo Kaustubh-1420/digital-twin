@@ -121,11 +121,6 @@ export function usePoseLandmarker() {
           const raw = result.worldLandmarks?.[0];
           landmarksRef.current = raw ? filterRef.current.filter(raw) : null;
           normLandmarksRef.current = (result.landmarks?.[0] as PoseLandmarks) ?? null;
-          // DEBUG: log first detection and then every 300 frames — remove when stable
-          if (raw && ((_dbgLmFrame === 0) || (_dbgLmFrame % 300 === 0))) {
-            const h = raw[23]; const s = raw[11];
-            console.log(`[MediaPipe] frame=${_dbgLmFrame} worldLandmarks OK len=${raw.length} hipL.y=${h.y.toFixed(3)} shldL.y=${s.y.toFixed(3)} (expect hipL.y<0, shldL.y>0 for Y-up)`);
-          }
           if (raw) _dbgLmFrame++;
 
           // Hand detection — reset each frame then populate from results
