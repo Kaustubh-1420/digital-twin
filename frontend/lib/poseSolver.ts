@@ -553,13 +553,20 @@ export function driveHands(
   if (rightHandLms && rightHandLms.length >= 21) _driveOneSide(bones, rightHandLms, RIGHT_FINGER_CFGS, "Right");
 }
 
-// ARKit blendshape indices for jaw/eye (same ordering as MediaPipe FaceLandmarker output)
-const ARKIT_BLINK_LEFT  = 9;
-const ARKIT_BLINK_RIGHT = 10;
-const ARKIT_JAW_OPEN    = 25;
+// ARKit blendshape indices used for bone driving
+const ARKIT_JAW_OPEN       = 25;
+const ARKIT_LOOK_DOWN_L    = 11;
+const ARKIT_LOOK_DOWN_R    = 12;
+const ARKIT_LOOK_IN_L      = 13;  // left eye toward nose = avatar's right
+const ARKIT_LOOK_IN_R      = 14;  // right eye toward nose = avatar's left
+const ARKIT_LOOK_OUT_L     = 15;
+const ARKIT_LOOK_OUT_R     = 16;
+const ARKIT_LOOK_UP_L      = 17;
+const ARKIT_LOOK_UP_R      = 18;
 
-const MAX_JAW_ANGLE   = 0.4;  // radians (~23°) for score=1.0
-const MAX_BLINK_ANGLE = 0.4;  // radians for score=1.0; positive X = lids close
+const MAX_JAW_ANGLE = 0.4;   // radians (~23°) for score=1.0
+const MAX_GAZE_V    = 0.3;   // vertical gaze range
+const MAX_GAZE_H    = 0.3;   // horizontal gaze range
 
 export function driveJawEyes(skeleton: THREE.Skeleton, calibratedScores: number[]): void {
   const bones: Map<string, THREE.Bone> = new Map();
@@ -568,10 +575,17 @@ export function driveJawEyes(skeleton: THREE.Skeleton, calibratedScores: number[
   const jaw = bones.get("Jaw");
   if (jaw) jaw.rotation.x = calibratedScores[ARKIT_JAW_OPEN] * MAX_JAW_ANGLE;
 
+  // Eye bones control eyeball gaze direction, not eyelid (eyelid is in expression PCA)
   const leftEye = bones.get("LeftEye");
-  if (leftEye) leftEye.rotation.x = calibratedScores[ARKIT_BLINK_LEFT] * MAX_BLINK_ANGLE;
+  if (leftEye) {
+    leftEye.rotation.x = (calibratedScores[ARKIT_LOOK_DOWN_L] - calibratedScores[ARKIT_LOOK_UP_L]) * MAX_GAZE_V;
+    leftEye.rotation.y = (calibratedScores[ARKIT_LOOK_IN_L]   - calibratedScores[ARKIT_LOOK_OUT_L]) * MAX_GAZE_H;
+  }
 
   const rightEye = bones.get("RightEye");
-  if (rightEye) rightEye.rotation.x = calibratedScores[ARKIT_BLINK_RIGHT] * MAX_BLINK_ANGLE;
+  if (rightEye) {
+    rightEye.rotation.x = (calibratedScores[ARKIT_LOOK_DOWN_R] - calibratedScores[ARKIT_LOOK_UP_R]) * MAX_GAZE_V;
+    rightEye.rotation.y = (calibratedScores[ARKIT_LOOK_OUT_R]  - calibratedScores[ARKIT_LOOK_IN_R]) * MAX_GAZE_H;
+  }
 }
 

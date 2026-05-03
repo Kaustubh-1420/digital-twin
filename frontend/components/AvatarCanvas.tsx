@@ -42,10 +42,11 @@ const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
 const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
 
-// Blendshape indices driven by jaw/eye bones — skip these in the expression PCA matrix
+// Blendshape indices driven by jaw bone — skip these in the expression PCA matrix
 // to prevent cross-talk (jaw open triggering wild mouth expression deformations)
-// Keep: brow (1-8), eyeLook (11-18), eyeSquint/Wide (19-22), noseSneer (50-51)
-const BONE_DRIVEN_BS = new Set([9, 10, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
+// Keep: brow (1-8), eyeBlink (9-10), eyeLook (11-18), eyeSquint/Wide (19-22), noseSneer (50-51)
+// eyeBlink stays in matrix — eyelid closure is expression PCA, not eye bone rotation
+const BONE_DRIVEN_BS = new Set([23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49]);
 
 const NEUTRAL_CALIB_FRAMES = 30;
 const _neutralAccum: number[] = new Array(52).fill(0);
