@@ -53,7 +53,6 @@ const _neutralAccum: number[] = new Array(52).fill(0);
 let _neutralCount = 0;
 let _neutralBaseline: number[] | null = null;
 
-let _faceDbgFrame = 0;
 // Returns calibrated scores after baseline subtraction, or null during warmup
 function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): number[] | null {
   const dict = mesh.morphTargetDictionary;
@@ -73,34 +72,20 @@ function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): number[] 
   // Subtract user's resting face from raw scores; clamp to [0,1]
   const calibrated = scores.map((s, j) => Math.max(0, Math.min(1, s - _neutralBaseline![j])));
 
-  const dbg = (_faceDbgFrame % 90 === 0);
-  if (dbg) {
-    const top5bs = calibrated.map((s,i) => [i,s] as [number,number]).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    console.log(`[FaceDebug] frame=${_faceDbgFrame} top5calibrated=${JSON.stringify(top5bs)}`);
-  }
-
   // calibrated (52,) @ EXPR_W (52×100) → expr params (100,)
-  // Bone-driven indices are excluded to prevent jaw/mouth cross-talk
-  const exprVals: number[] = [];
+  // Bone-driven indices excluded to prevent jaw/mouth cross-talk
   for (let i = 0; i < 100; i++) {
     let v = 0;
     for (let j = 0; j < 52; j++) {
       if (BONE_DRIVEN_BS.has(j)) continue;
       v += calibrated[j] * EXPR_W[j][i];
     }
-    exprVals.push(v);
     const slotIdx = dict[`expr_${i}`];
     if (slotIdx !== undefined) {
       inf[slotIdx] += (v - inf[slotIdx]) * 0.15;
     }
   }
 
-  if (dbg) {
-    const top5expr = exprVals.map((v,i) => [i,v] as [number,number]).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,5);
-    console.log(`[FaceDebug] top5exprDims=${JSON.stringify(top5expr)}`);
-  }
-
-  _faceDbgFrame++;
   return calibrated;
 }
 
@@ -161,7 +146,6 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
   const { camera } = useThree();
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
   const meshRef     = useRef<THREE.SkinnedMesh | null>(null);
-  const bindLoggedRef = useRef(false);
 
   useMemo(() => {
     gltfScene.traverse((obj) => {
@@ -172,19 +156,6 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
         skeletonRef.current = sm.skeleton;
         meshRef.current     = sm;
 
-        if (!bindLoggedRef.current) {
-          bindLoggedRef.current = true;
-          const HAND_RE = /Hand|Thumb|Index|Middle|Ring|Little|Pinky/;
-          const rows = sm.skeleton.bones
-            .filter((b) => HAND_RE.test(b.name))
-            .map((b) => ({
-              name: b.name,
-              q: b.quaternion.toArray().map((n) => +n.toFixed(4)),
-              pos: b.position.toArray().map((n) => +n.toFixed(4)),
-              order: b.rotation.order,
-            }));
-          console.log("[BindPose] hand+finger bones (BEFORE driving):", rows);
-        }
       }
     });
   }, [gltfScene]);

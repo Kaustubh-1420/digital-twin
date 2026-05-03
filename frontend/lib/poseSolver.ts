@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 
 const DEBUG_POSE  = false;  // body logs — off during hand calibration
-const DEBUG_HANDS = true;   // hand logs — log obsWorld/obsLocal for key finger bones
+const DEBUG_HANDS = false;
 let _dbgFrame = 0;
 let _dbgHandFrame = 0;
 
@@ -568,7 +568,6 @@ const MAX_JAW_ANGLE = 0.4;   // radians (~23°) for score=1.0
 const MAX_GAZE_V    = 0.6;   // vertical gaze range (increased — eyeball is small)
 const MAX_GAZE_H    = 0.6;   // horizontal gaze range
 
-let _gazeDbgFrame = 0;
 export function driveJawEyes(skeleton: THREE.Skeleton, calibratedScores: number[]): void {
   const bones: Map<string, THREE.Bone> = new Map();
   skeleton.bones.forEach(b => bones.set(b.name, b));
@@ -576,29 +575,17 @@ export function driveJawEyes(skeleton: THREE.Skeleton, calibratedScores: number[
   const jaw = bones.get("Jaw");
   if (jaw) jaw.rotation.x = calibratedScores[ARKIT_JAW_OPEN] * MAX_JAW_ANGLE;
 
-  // Eye bones control eyeball gaze direction, not eyelid (eyelid is in expression PCA)
-  const leftEye  = bones.get("LeftEye");
-  const rightEye = bones.get("RightEye");
-
-  if (_gazeDbgFrame === 0) {
-    console.log("[GazeDebug] LeftEye found:", !!leftEye, "RightEye found:", !!rightEye);
-  }
-
+  // Eye bones control eyeball gaze direction; eyelid closure is in expression PCA
+  const leftEye = bones.get("LeftEye");
   if (leftEye) {
     leftEye.rotation.x = (calibratedScores[ARKIT_LOOK_DOWN_L] - calibratedScores[ARKIT_LOOK_UP_L]) * MAX_GAZE_V;
     leftEye.rotation.y = (calibratedScores[ARKIT_LOOK_IN_L]   - calibratedScores[ARKIT_LOOK_OUT_L]) * MAX_GAZE_H;
   }
 
+  const rightEye = bones.get("RightEye");
   if (rightEye) {
     rightEye.rotation.x = (calibratedScores[ARKIT_LOOK_DOWN_R] - calibratedScores[ARKIT_LOOK_UP_R]) * MAX_GAZE_V;
     rightEye.rotation.y = (calibratedScores[ARKIT_LOOK_OUT_R]  - calibratedScores[ARKIT_LOOK_IN_R]) * MAX_GAZE_H;
   }
-
-  if (_gazeDbgFrame % 90 === 0) {
-    const upL = calibratedScores[ARKIT_LOOK_UP_L], upR = calibratedScores[ARKIT_LOOK_UP_R];
-    const dnL = calibratedScores[ARKIT_LOOK_DOWN_L], dnR = calibratedScores[ARKIT_LOOK_DOWN_R];
-    console.log(`[GazeDebug] frame=${_gazeDbgFrame} upL=${upL.toFixed(2)} upR=${upR.toFixed(2)} dnL=${dnL.toFixed(2)} dnR=${dnR.toFixed(2)} lEyeRotX=${leftEye?.rotation.x.toFixed(3) ?? "N/A"}`);
-  }
-  _gazeDbgFrame++;
 }
 
