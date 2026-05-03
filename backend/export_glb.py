@@ -156,7 +156,7 @@ N_JOINTS = len(_JOINT_NAMES)  # 52
 
 # 10 SMPL-X expression PCA components exported as morph targets.
 # Names match what Three.js will populate in mesh.morphTargetDictionary.
-EXPRESSION_MORPH_NAMES = [f"expr_{i}" for i in range(10)]
+EXPRESSION_MORPH_NAMES = [f"expr_{i}" for i in range(100)]
 # Strength to drive each basis vector (how far we push the expression).
 # 2.0 gives visible but not exaggerated deformation for all 10 components.
 _EXPR_STRENGTH = 2.0

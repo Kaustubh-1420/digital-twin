@@ -66,6 +66,7 @@ def _build_smplx():
         gender='neutral',
         use_pca=False,
         num_betas=10,
+        num_expression_coeffs=100,
         batch_size=1,
     )
 
