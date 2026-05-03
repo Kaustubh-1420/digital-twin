@@ -553,3 +553,25 @@ export function driveHands(
   if (rightHandLms && rightHandLms.length >= 21) _driveOneSide(bones, rightHandLms, RIGHT_FINGER_CFGS, "Right");
 }
 
+// ARKit blendshape indices for jaw/eye (same ordering as MediaPipe FaceLandmarker output)
+const ARKIT_BLINK_LEFT  = 9;
+const ARKIT_BLINK_RIGHT = 10;
+const ARKIT_JAW_OPEN    = 25;
+
+const MAX_JAW_ANGLE   = 0.4;  // radians (~23°) for score=1.0
+const MAX_BLINK_ANGLE = 0.4;  // radians for score=1.0; positive X = lids close
+
+export function driveJawEyes(skeleton: THREE.Skeleton, calibratedScores: number[]): void {
+  const bones: Map<string, THREE.Bone> = new Map();
+  skeleton.bones.forEach(b => bones.set(b.name, b));
+
+  const jaw = bones.get("Jaw");
+  if (jaw) jaw.rotation.x = calibratedScores[ARKIT_JAW_OPEN] * MAX_JAW_ANGLE;
+
+  const leftEye = bones.get("LeftEye");
+  if (leftEye) leftEye.rotation.x = calibratedScores[ARKIT_BLINK_LEFT] * MAX_BLINK_ANGLE;
+
+  const rightEye = bones.get("RightEye");
+  if (rightEye) rightEye.rotation.x = calibratedScores[ARKIT_BLINK_RIGHT] * MAX_BLINK_ANGLE;
+}
+

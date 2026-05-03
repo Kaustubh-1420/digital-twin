@@ -6,7 +6,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
-import { driveSkeleton, driveHands } from "@/lib/poseSolver";
+import { driveSkeleton, driveHands, driveJawEyes } from "@/lib/poseSolver";
 import { EXPR_W } from "@/lib/exprMapping";
 
 const FACE_ENABLED = true;
@@ -42,25 +42,42 @@ const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
 const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
 
+const NEUTRAL_CALIB_FRAMES = 30;
+const _neutralAccum: number[] = new Array(52).fill(0);
+let _neutralCount = 0;
+let _neutralBaseline: number[] | null = null;
+
 let _faceDbgFrame = 0;
-function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): void {
+// Returns calibrated scores after baseline subtraction, or null during warmup
+function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): number[] | null {
   const dict = mesh.morphTargetDictionary;
   const inf  = mesh.morphTargetInfluences;
-  if (!dict || !inf) return;
+  if (!dict || !inf) return null;
 
-  // [FaceDebug] — fires on frame 0 and every 90 frames (~1.5s)
-  const dbg = (_faceDbgFrame % 90 === 0);
-  if (dbg) {
-    const nMorphs = Object.keys(dict).filter(k => k.startsWith("expr_")).length;
-    const top5bs  = scores.map((s,i) => [i,s] as [number,number]).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    console.log(`[FaceDebug] frame=${_faceDbgFrame} morphsInGLB=${nMorphs} top5bs=${JSON.stringify(top5bs)}`);
+  // Collect first N frames to build neutral baseline, skip driving until ready
+  if (_neutralCount < NEUTRAL_CALIB_FRAMES) {
+    for (let j = 0; j < 52; j++) _neutralAccum[j] += scores[j];
+    _neutralCount++;
+    if (_neutralCount === NEUTRAL_CALIB_FRAMES) {
+      _neutralBaseline = _neutralAccum.map(v => v / NEUTRAL_CALIB_FRAMES);
+    }
+    return null;
   }
 
+  // Subtract user's resting face from raw scores; clamp to [0,1]
+  const calibrated = scores.map((s, j) => Math.max(0, Math.min(1, s - _neutralBaseline![j])));
+
+  const dbg = (_faceDbgFrame % 90 === 0);
+  if (dbg) {
+    const top5bs = calibrated.map((s,i) => [i,s] as [number,number]).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    console.log(`[FaceDebug] frame=${_faceDbgFrame} top5calibrated=${JSON.stringify(top5bs)}`);
+  }
+
+  // calibrated (52,) @ EXPR_W (52×100) → expr params (100,)
   const exprVals: number[] = [];
-  // scores (52,) @ EXPR_W (52×100) → expr params (100,)
   for (let i = 0; i < 100; i++) {
     let v = 0;
-    for (let j = 0; j < 52; j++) v += scores[j] * EXPR_W[j][i];
+    for (let j = 0; j < 52; j++) v += calibrated[j] * EXPR_W[j][i];
     exprVals.push(v);
     const slotIdx = dict[`expr_${i}`];
     if (slotIdx !== undefined) {
@@ -72,7 +89,9 @@ function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): void {
     const top5expr = exprVals.map((v,i) => [i,v] as [number,number]).sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0,5);
     console.log(`[FaceDebug] top5exprDims=${JSON.stringify(top5expr)}`);
   }
+
   _faceDbgFrame++;
+  return calibrated;
 }
 
 // ── Virtual room ──────────────────────────────────────────────────────────────
@@ -184,7 +203,8 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
     );
 
     if (FACE_ENABLED && meshRef.current && faceBlendshapesRef.current) {
-      driveMorphTargets(meshRef.current, faceBlendshapesRef.current);
+      const calibrated = driveMorphTargets(meshRef.current, faceBlendshapesRef.current);
+      if (calibrated) driveJawEyes(sk, calibrated);
     }
 
     if (!webcamActive || !normLms || normLms.length < 33) return;
