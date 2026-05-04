@@ -26,7 +26,7 @@ type Props = {
 };
 
 const BODY_MATERIAL = new THREE.MeshStandardMaterial({
-  color: "#a78bfa",
+  color: "#c8b4a0",
   roughness: 0.65,
   metalness: 0.05,
 });
@@ -91,40 +91,20 @@ function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): number[] 
   return calibrated;
 }
 
-// ── Virtual room ──────────────────────────────────────────────────────────────
+// ── Studio environment ────────────────────────────────────────────────────────
 
-function Room() {
+function StudioRoom() {
   return (
     <group>
-      {/* Floor */}
+      {/* Floor — shadow catcher only */}
       <mesh position={[0, -0.91, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[14, 10]} />
-        <meshStandardMaterial color="#1a1a28" roughness={0.85} metalness={0.1} />
+        <planeGeometry args={[20, 20]} />
+        <shadowMaterial opacity={0.1} />
       </mesh>
       {/* Back wall */}
       <mesh position={[0, 1.5, -3]} receiveShadow>
-        <planeGeometry args={[14, 8]} />
-        <meshStandardMaterial color="#2e2e50" roughness={0.9} />
-      </mesh>
-      {/* Left wall */}
-      <mesh position={[-5, 1.5, 0]} rotation={[0, Math.PI / 2, 0]} receiveShadow>
-        <planeGeometry args={[10, 8]} />
-        <meshStandardMaterial color="#272742" roughness={0.9} />
-      </mesh>
-      {/* Right wall */}
-      <mesh position={[5, 1.5, 0]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
-        <planeGeometry args={[10, 8]} />
-        <meshStandardMaterial color="#272742" roughness={0.9} />
-      </mesh>
-      {/* Simple prop — low box left */}
-      <mesh position={[-3.2, -0.35, -2.5]} castShadow receiveShadow>
-        <boxGeometry args={[1.2, 1.1, 0.5]} />
-        <meshStandardMaterial color="#1e1e38" roughness={0.8} />
-      </mesh>
-      {/* Simple prop — taller box right */}
-      <mesh position={[3.4, 0.2, -2.6]} castShadow receiveShadow>
-        <boxGeometry args={[0.9, 2.2, 0.45]} />
-        <meshStandardMaterial color="#1e1e38" roughness={0.8} />
+        <planeGeometry args={[16, 8]} />
+        <meshStandardMaterial color="#ececea" roughness={1} />
       </mesh>
     </group>
   );
@@ -246,27 +226,27 @@ function PlaceholderFigure() {
     <group>
       <mesh position={[0, 0.9, 0]}>
         <boxGeometry args={[0.5, 0.7, 0.25]} />
-        <meshStandardMaterial color="#4f46e5" />
+        <meshStandardMaterial color="#aaaaaa" />
       </mesh>
       <mesh position={[0, 1.5, 0]}>
         <sphereGeometry args={[0.2, 16, 16]} />
-        <meshStandardMaterial color="#6366f1" />
+        <meshStandardMaterial color="#bbbbbb" />
       </mesh>
       <mesh position={[-0.38, 0.85, 0]} rotation={[0, 0, 0.2]}>
         <boxGeometry args={[0.12, 0.6, 0.12]} />
-        <meshStandardMaterial color="#4f46e5" />
+        <meshStandardMaterial color="#aaaaaa" />
       </mesh>
       <mesh position={[0.38, 0.85, 0]} rotation={[0, 0, -0.2]}>
         <boxGeometry args={[0.12, 0.6, 0.12]} />
-        <meshStandardMaterial color="#4f46e5" />
+        <meshStandardMaterial color="#aaaaaa" />
       </mesh>
       <mesh position={[-0.15, 0.25, 0]}>
         <boxGeometry args={[0.18, 0.6, 0.18]} />
-        <meshStandardMaterial color="#3730a3" />
+        <meshStandardMaterial color="#999999" />
       </mesh>
       <mesh position={[0.15, 0.25, 0]}>
         <boxGeometry args={[0.18, 0.6, 0.18]} />
-        <meshStandardMaterial color="#3730a3" />
+        <meshStandardMaterial color="#999999" />
       </mesh>
     </group>
   );
@@ -281,17 +261,19 @@ export default function AvatarCanvas({
     <div className="relative w-full h-full">
       <Canvas
         camera={{ position: [0, 0, CAM_BASE_Z], fov: 50 }}
-        style={{ background: "#09090b" }}
+        style={{ background: "linear-gradient(180deg, #e8e8e8 0%, #f5f5f5 100%)" }}
         shadows
       >
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[2, 4, 2]} intensity={1.2} castShadow />
-        <directionalLight position={[-2, 2, -1]} intensity={0.4} />
-        {/* Fill light facing back wall so it's visible from camera */}
-        <directionalLight position={[0, 2, 4]} intensity={0.7} />
-        <pointLight position={[0, 3, 1]} intensity={0.6} color="#7c6cff" />
+        <ambientLight intensity={0.5} />
+        {/* Key light — front-left, warm white */}
+        <directionalLight position={[3, 5, 3]} intensity={1.8} color="#fff8f0" castShadow
+          shadow-mapSize={[1024, 1024]} shadow-camera-near={0.5} shadow-camera-far={20} />
+        {/* Fill light — front-right, cool white */}
+        <directionalLight position={[-3, 3, 2]} intensity={0.8} color="#f0f4ff" />
+        {/* Rim light — behind, separates avatar from background */}
+        <directionalLight position={[0, 4, -4]} intensity={1.0} color="#ffffff" />
 
-        <Room />
+        <StudioRoom />
 
         {glbUrl ? (
           <Suspense fallback={null}>
@@ -328,8 +310,8 @@ export default function AvatarCanvas({
           position={[0, -0.9, 0]}
           args={[8, 8]}
           cellSize={0.5}
-          cellColor="#1f1f30"
-          sectionColor="#2d2d44"
+          cellColor="#d0d0cc"
+          sectionColor="#b8b8b4"
           fadeDistance={7}
           infiniteGrid
         />
@@ -337,15 +319,15 @@ export default function AvatarCanvas({
       </Canvas>
 
       {loading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/70 gap-3">
-          <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-zinc-300">Generating your avatar…</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 gap-3">
+          <div className="w-8 h-8 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-gray-600">Generating your avatar…</span>
         </div>
       )}
       {!glbUrl && !loading && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
-          <span className="text-xs text-zinc-600 bg-zinc-950/80 px-3 py-1 rounded-full">
-            Your avatar will appear here
+          <span className="text-xs text-gray-400 bg-white/80 px-3 py-1 rounded-full">
+            Upload a photo to generate your avatar
           </span>
         </div>
       )}

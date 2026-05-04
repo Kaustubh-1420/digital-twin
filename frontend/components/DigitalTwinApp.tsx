@@ -62,12 +62,13 @@ export default function DigitalTwinApp() {
   return (
     <div className="flex h-full">
       {/* Left panel */}
-      <aside className="w-80 shrink-0 flex flex-col gap-6 p-6 border-r border-zinc-800 overflow-y-auto">
+      <aside className="w-80 shrink-0 flex flex-col gap-6 p-6 border-r border-gray-200 overflow-y-auto">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">digital-twin</h1>
-          <p className="text-sm text-zinc-500 mt-1">
-            Photo → personalized SMPL-X avatar → real-time mirroring
+          <p className="text-sm text-gray-500 mt-1">
+            Upload a photo. ML estimates your body shape. Webcam mirrors you live.
           </p>
+          <p className="text-xs text-gray-400 mt-2">PyMAF-X · SMPL-X · MediaPipe · Three.js</p>
         </div>
 
         <UploadForm
@@ -79,9 +80,9 @@ export default function DigitalTwinApp() {
 
         {/* Webcam controls — only shown once an avatar exists */}
         {hasAvatar && (
-          <div className="flex flex-col gap-2 border-t border-zinc-800 pt-5">
+          <div className="flex flex-col gap-2 border-t border-gray-200 pt-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-zinc-400">Real-time mirroring</span>
+              <span className="text-sm text-gray-500">Real-time mirroring</span>
               {webcamActive && (
                 <span className="flex items-center gap-1.5 text-xs text-green-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
@@ -94,7 +95,7 @@ export default function DigitalTwinApp() {
               onClick={webcamActive ? handleStopWebcam : startWebcam}
               disabled={!mpReady}
               className="w-full py-3 rounded-lg font-medium text-sm transition-colors
-                bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-white"
+                bg-gray-900 hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed text-white"
             >
               {!mpReady
                 ? "Loading pose model…"
@@ -107,7 +108,7 @@ export default function DigitalTwinApp() {
             <button
               onClick={toggleMirror}
               className="w-full py-2 rounded-lg text-sm transition-colors
-                border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200"
+                border border-gray-200 hover:border-gray-400 text-gray-500 hover:text-gray-900"
             >
               {mirrorMode ? "Mirror: ON" : "Mirror: OFF"}
             </button>
