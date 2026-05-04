@@ -7,9 +7,11 @@ import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
 import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 import { driveSkeleton, driveHands, driveJawEyes } from "@/lib/poseSolver";
+import { driveShowcase } from "@/lib/showcaseLoop";
 import { EXPR_W } from "@/lib/exprMapping";
 
 const FACE_ENABLED = true;
+const SAMPLE_GLB_URL = "/sample-avatar.glb";
 
 type Props = {
   glbUrl: string | null;
@@ -139,9 +141,10 @@ type AvatarProps = {
   faceBlendshapesRef: RefObject<number[] | null>;
   mirrorRef: RefObject<boolean>;
   webcamActive: boolean;
+  showcaseMode?: boolean;
 };
 
-function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, mirrorRef, webcamActive }: AvatarProps) {
+function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, mirrorRef, webcamActive, showcaseMode = false }: AvatarProps) {
   const { scene: gltfScene } = useGLTF(url);
   const { camera } = useThree();
   const skeletonRef = useRef<THREE.Skeleton | null>(null);
@@ -167,11 +170,18 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
     }
   }, [webcamActive, camera]);
 
-  useFrame(() => {
+  useFrame((state) => {
+    const sk = skeletonRef.current;
+    if (!sk) return;
+
+    if (showcaseMode) {
+      driveShowcase(sk, state.clock.elapsedTime);
+      return;
+    }
+
     const lms     = landmarksRef.current;
     const normLms = normLandmarksRef.current;
-    const sk      = skeletonRef.current;
-    if (!lms || !sk || lms.length < 33) return;
+    if (!lms || lms.length < 33) return;
     const isMirror = mirrorRef.current;
     driveSkeleton(sk, lms, isMirror);
     driveHands(sk,
@@ -215,6 +225,13 @@ function Avatar({ url, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef
     camera.lookAt(0, CAM_LOOKAT_Y, 0);
   });
 
+  if (showcaseMode) {
+    return (
+      <Center position={[0, -0.25, 0]}>
+        <primitive object={gltfScene} />
+      </Center>
+    );
+  }
   return (
     <Center>
       <primitive object={gltfScene} />
@@ -291,9 +308,20 @@ export default function AvatarCanvas({
             />
           </Suspense>
         ) : (
-          <Center>
-            <PlaceholderFigure />
-          </Center>
+          <Suspense fallback={null}>
+            <Avatar
+              key="showcase"
+              url={SAMPLE_GLB_URL}
+              landmarksRef={landmarksRef}
+              normLandmarksRef={normLandmarksRef}
+              leftHandRef={leftHandRef}
+              rightHandRef={rightHandRef}
+              faceBlendshapesRef={faceBlendshapesRef}
+              mirrorRef={mirrorRef}
+              webcamActive={false}
+              showcaseMode
+            />
+          </Suspense>
         )}
 
         <Grid
