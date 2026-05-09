@@ -3,3 +3,12 @@
 * {
   box-sizing: border-box;
 }
+
+.dt-stage {
+  background: radial-gradient(
+    ellipse at 50% 35%,
+    #ffffff 0%,
+    #efece5 70%,
+    #e3ddd1 100%
+  );
+}

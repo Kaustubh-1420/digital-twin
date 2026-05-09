@@ -6,51 +6,49 @@ type Props = {
   text: string | null;
 };
 
-const ICONS: Record<string, string> = {
-  "Chest":          "⬤",
-  "Waist":          "⬤",
-  "Hip":            "⬤",
-  "Shoulder width": "⬤",
-  "Inseam":         "⬤",
-  "Arm length":     "⬤",
-};
+const LABELS: { key: string; label: string }[] = [
+  { key: "Chest",          label: "Chest" },
+  { key: "Waist",          label: "Waist" },
+  { key: "Hip",            label: "Hip" },
+  { key: "Shoulder width", label: "Shoulder width" },
+  { key: "Inseam",         label: "Inseam" },
+  { key: "Arm length",     label: "Arm length" },
+];
 
 export default function MeasurementsPanel({ text }: Props) {
-  if (!text) {
-    return (
-      <div className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Measurements</h2>
-        <div className="rounded-xl border border-gray-200 p-4">
-          <p className="text-sm text-gray-400 text-center py-4">
-            Upload a photo to see your measurements
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const parsed = parseMeasurements(text);
-  const entries = Object.entries(parsed);
+  const parsed = text ? parseMeasurements(text) : {};
+  const hasData = Object.keys(parsed).length > 0;
 
   return (
-    <div className="flex flex-col gap-2">
-      <h2 className="text-sm font-medium text-gray-500 uppercase tracking-wider">Measurements</h2>
-      <div className="rounded-xl border border-gray-200 divide-y divide-zinc-800">
-        {entries.length > 0 ? (
-          entries.map(([label, value]) => (
-            <div key={label} className="flex justify-between items-center px-4 py-3">
-              <span className="text-sm text-gray-700">{label}</span>
-              <span className="text-sm font-medium tabular-nums text-gray-900 font-semibold">{value}</span>
+    <div className="flex flex-col gap-3">
+      <h2 className="text-[11px] font-medium uppercase tracking-wider text-black/50">
+        Measurements
+      </h2>
+
+      <div className="rounded-xl border border-black/[0.07] overflow-hidden bg-white">
+        {LABELS.map(({ key, label }, i) => {
+          const value = (parsed as Record<string, string>)[key];
+          const isLast = i === LABELS.length - 1;
+          return (
+            <div
+              key={key}
+              className={`flex justify-between items-center px-4 py-3 ${isLast ? "" : "border-b border-black/[0.06]"}`}
+            >
+              <span className="text-[12.5px] text-black/65">{label}</span>
+              <span
+                className={`text-[13px] font-medium tabular-nums ${value ? "text-[#0c0c0a]" : "text-black/25"}`}
+              >
+                {value ?? "— cm"}
+              </span>
             </div>
-          ))
-        ) : (
-          <div className="px-4 py-3">
-            <pre className="text-xs text-gray-500 whitespace-pre-wrap font-mono">{text}</pre>
-          </div>
-        )}
+          );
+        })}
       </div>
-      <p className="text-xs text-gray-400">
-        Estimates from a single photo. Accuracy improves with a fitted, front-facing photo.
+
+      <p className="text-[11px] text-black/45 leading-relaxed px-1">
+        {hasData
+          ? "Estimates from a single photo. Accuracy improves with a fitted, front-facing photo."
+          : "Upload a photo to generate measurements."}
       </p>
     </div>
   );

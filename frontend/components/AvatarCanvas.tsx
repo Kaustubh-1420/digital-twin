@@ -3,7 +3,7 @@
 import { Suspense, useMemo, useRef, useEffect } from "react";
 import type { RefObject } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useGLTF, OrbitControls, Grid, Center } from "@react-three/drei";
+import { useGLTF, OrbitControls, ContactShadows, Center } from "@react-three/drei";
 import * as THREE from "three";
 import type { PoseLandmarks, HandLandmarks } from "@/hooks/usePoseLandmarker";
 import { driveSkeleton, driveHands, driveJawEyes } from "@/lib/poseSolver";
@@ -91,24 +91,6 @@ function driveMorphTargets(mesh: THREE.SkinnedMesh, scores: number[]): number[] 
   return calibrated;
 }
 
-// ── Studio environment ────────────────────────────────────────────────────────
-
-function StudioRoom() {
-  return (
-    <group>
-      {/* Floor — shadow catcher only */}
-      <mesh position={[0, -0.91, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[20, 20]} />
-        <shadowMaterial opacity={0.1} />
-      </mesh>
-      {/* Back wall */}
-      <mesh position={[0, 1.5, -3]} receiveShadow>
-        <planeGeometry args={[16, 8]} />
-        <meshStandardMaterial color="#ececea" roughness={1} />
-      </mesh>
-    </group>
-  );
-}
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 
@@ -261,7 +243,8 @@ export default function AvatarCanvas({
     <div className="relative w-full h-full">
       <Canvas
         camera={{ position: [0, 0, CAM_BASE_Z], fov: 50 }}
-        style={{ background: "linear-gradient(180deg, #e8e8e8 0%, #f5f5f5 100%)" }}
+        gl={{ alpha: true }}
+        style={{ background: "transparent" }}
         shadows
       >
         <ambientLight intensity={0.5} />
@@ -273,9 +256,9 @@ export default function AvatarCanvas({
         {/* Rim light — behind, separates avatar from background */}
         <directionalLight position={[0, 4, -4]} intensity={1.0} color="#ffffff" />
 
-        <StudioRoom />
+        <ContactShadows position={[0, -0.91, 0]} opacity={0.25} scale={4} blur={2.5} far={1.5} />
 
-        {glbUrl ? (
+        {!loading && (glbUrl ? (
           <Suspense fallback={null}>
             <Avatar
               key={glbUrl}
@@ -304,31 +287,15 @@ export default function AvatarCanvas({
               showcaseMode
             />
           </Suspense>
-        )}
+        ))}
 
-        <Grid
-          position={[0, -0.9, 0]}
-          args={[8, 8]}
-          cellSize={0.5}
-          cellColor="#d0d0cc"
-          sectionColor="#b8b8b4"
-          fadeDistance={7}
-          infiniteGrid
-        />
         <OrbitControls makeDefault enabled={!webcamActive} />
       </Canvas>
 
       {loading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 gap-3">
-          <div className="w-8 h-8 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-gray-600">Generating your avatar…</span>
-        </div>
-      )}
-      {!glbUrl && !loading && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
-          <span className="text-xs text-gray-400 bg-white/80 px-3 py-1 rounded-full">
-            Upload a photo to generate your avatar
-          </span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#fafaf8]/80 gap-3">
+          <div className="w-8 h-8 border-2 border-[#b07a5e] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-black/50">Generating your avatar…</span>
         </div>
       )}
     </div>

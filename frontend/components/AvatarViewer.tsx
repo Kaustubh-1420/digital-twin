@@ -22,10 +22,8 @@ type Props = {
 
 export default function AvatarViewer({ glbUrl, loading, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, mirrorRef, active }: Props) {
   return (
-    <div className="flex flex-col gap-2 flex-1 min-h-0">
-      <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-gray-200">
-        <AvatarCanvas glbUrl={glbUrl} loading={loading} landmarksRef={landmarksRef} normLandmarksRef={normLandmarksRef} leftHandRef={leftHandRef} rightHandRef={rightHandRef} faceBlendshapesRef={faceBlendshapesRef} mirrorRef={mirrorRef} webcamActive={active} />
-      </div>
+    <div className="w-full h-full rounded-2xl overflow-hidden border border-black/[0.06]">
+      <AvatarCanvas glbUrl={glbUrl} loading={loading} landmarksRef={landmarksRef} normLandmarksRef={normLandmarksRef} leftHandRef={leftHandRef} rightHandRef={rightHandRef} faceBlendshapesRef={faceBlendshapesRef} mirrorRef={mirrorRef} webcamActive={active} />
     </div>
   );
 }
