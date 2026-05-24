@@ -1,16 +1,6 @@
----
-title: Digital Twin
-emoji: 🧍
-colorFrom: blue
-colorTo: purple
-sdk: gradio
-sdk_version: "6.13.0"
-python_version: "3.11"
-app_file: app.py
-pinned: false
----
-
 # digital-twin
+
+**[Live demo](https://digital-twin-ai.vercel.app)** · **[HF Space](https://huggingface.co/spaces/Kaustubh1420/digital-twin)**
 
 Upload a photo and your height. PyMAF-X fits an SMPL-X body model to your proportions, exports a personalized skinned mesh, and streams it to the browser — where it mirrors your movements in real time via webcam.
 

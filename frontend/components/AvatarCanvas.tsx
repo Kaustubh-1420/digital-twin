@@ -42,7 +42,7 @@ const VIS_THRESHOLD      = 0.3;
 // Camera Y rises to face height when zoomed in, returns to center when far
 const CAM_Y_CLOSE        = 0.6;
 const CAM_Y_FAR          = 0.0;
-const CAM_LOOKAT_Y       = 0.3; // fixed — roughly chest/throat level
+const CAM_LOOKAT_Y       = 0.75; // fixed — roughly neck/head level
 
 // Blendshape indices driven by jaw bone — skip these in the expression PCA matrix
 // to prevent cross-talk (jaw open triggering wild mouth expression deformations)
