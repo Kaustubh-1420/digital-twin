@@ -6,8 +6,6 @@ Upload a photo and your height. PyMAF-X fits an SMPL-X body model to your propor
 
 The avatar is fitted to your estimated body shape, not a generic template. Body pose, hands (30 joints), jaw, and facial expressions are all driven client-side at ~30 fps with no server round-trip after the initial fit.
 
-**[Live demo](https://frontend-chi-cyan-49.vercel.app)** · **[HF Space](https://huggingface.co/spaces/Kaustubh1420/digital-twin)**
-
 ---
 
 ## How it works
