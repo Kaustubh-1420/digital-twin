@@ -1,5 +1,3 @@
-import { Client } from "@gradio/client";
-
 export type PipelineResult = {
   glbUrl: string;
   measurements: string;
@@ -9,22 +7,24 @@ export async function runPipeline(
   imageFile: File,
   heightCm: number
 ): Promise<PipelineResult> {
-  const client = await Client.connect("Kaustubh1420/digital-twin");
-  // fn_index 0 = run_pipeline (first click handler in the Blocks app)
-  const result = await client.predict(0, [imageFile, heightCm]);
-  const [glbData, measurementsText, statusText] = result.data as [
-    { url: string } | null,
-    string,
-    string
-  ];
+  // Routed through our own /api/predict (server-side) instead of connecting to
+  // the HF Space directly from the browser — @gradio/client hardcodes
+  // `credentials: "include"` on its fetches, which HF Spaces' wildcard CORS
+  // headers reject outright.
+  const formData = new FormData();
+  formData.append("image", imageFile);
+  formData.append("heightCm", String(heightCm));
 
-  if (!glbData?.url) {
-    throw new Error(statusText || "No avatar returned from server.");
+  const res = await fetch("/api/predict", { method: "POST", body: formData });
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error || "Pipeline failed.");
   }
 
   // Proxy through local route to avoid cross-origin issues with the HF Space URL
-  const proxiedUrl = `/api/glb?url=${encodeURIComponent(glbData.url)}`;
-  return { glbUrl: proxiedUrl, measurements: measurementsText };
+  const proxiedUrl = `/api/glb?url=${encodeURIComponent(data.glbUrl)}`;
+  return { glbUrl: proxiedUrl, measurements: data.measurements };
 }
 
 export function parseMeasurements(text: string): Record<string, string> {
