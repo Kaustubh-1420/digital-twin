@@ -38,6 +38,12 @@ export default function DigitalTwinApp() {
     resetSkeletonDriverState();
   }
 
+  // runPipeline hands back an object URL now, so the previous one has to be
+  // released when it is replaced or discarded.
+  function releaseGlbUrl(url: string | null) {
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+
   async function handleSubmit(file: File, heightCm: number) {
     setStatus("loading");
     setStatusText("Connecting to server…");
@@ -45,10 +51,22 @@ export default function DigitalTwinApp() {
     try {
       setStatusText("Running body estimation (30–60 s on cold GPU)…");
       const result = await runPipeline(file, heightCm);
-      setGlbUrl(result.glbUrl);
+      setGlbUrl((prev) => {
+        releaseGlbUrl(prev);
+        return result.glbUrl;
+      });
       setMeasurements(result.measurements);
       setStatus("done");
     } catch (e) {
+      // Drop any previous avatar and its measurements. Showing either one
+      // after a failure is what made a failed run look like a successful
+      // one — measurements from the real photo beside a body that is not
+      // the generated one.
+      setGlbUrl((prev) => {
+        releaseGlbUrl(prev);
+        return null;
+      });
+      setMeasurements(null);
       setError(e instanceof Error ? e.message : "Unknown error");
       setStatus("error");
     }
@@ -194,6 +212,26 @@ export default function DigitalTwinApp() {
               normLandmarksRef={normLandmarksRef}
               active={webcamActive}
             />
+
+            {/* The stage falls back to the showcase mannequin whenever there is
+                no avatar. After a failed run that reads as a result, so cover
+                it and say plainly that nothing was produced. */}
+            {status === "error" && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-[#fafaf8]/95 backdrop-blur-sm">
+                <div className="max-w-[300px] text-center px-6">
+                  <div className="font-serif italic text-sm text-black/55 mb-2">
+                    No avatar generated
+                  </div>
+                  <p className="text-xs text-black/60 leading-relaxed">
+                    {error}
+                  </p>
+                  <p className="text-[11px] text-black/40 leading-relaxed mt-3">
+                    The figure shown before this is a sample model, not your
+                    result.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </main>
 
