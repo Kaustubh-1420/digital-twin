@@ -57,10 +57,30 @@ export async function runPipeline(
   formData.append("heightCm", String(heightCm));
 
   const res = await fetch("/api/predict", { method: "POST", body: formData });
-  const data = await res.json();
+
+  // Read as text and parse defensively. A platform-level failure (function
+  // timeout, crash, cold-start error) returns an HTML error page rather than
+  // JSON, and res.json() throws on that before res.ok is ever checked — which
+  // surfaced to the user as `Unexpected token 'A'` instead of something they
+  // could act on.
+  const raw = await res.text();
+  let data: { glbUrl?: string; measurements?: string; error?: string } = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    // Left empty: handled by the status checks below.
+  }
 
   if (!res.ok) {
-    throw new Error(data.error || "Pipeline failed.");
+    throw new Error(
+      data.error || `Body estimation failed (HTTP ${res.status}). Please try again.`
+    );
+  }
+
+  if (!data.glbUrl || typeof data.measurements !== "string") {
+    throw new Error(
+      "Body estimation returned an unexpected response. Please try again."
+    );
   }
 
   // Proxy through local route to avoid cross-origin issues with the HF Space URL
