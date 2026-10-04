@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, DragEvent, ChangeEvent } from "react";
+import { useRef, useState, DragEvent, ChangeEvent, KeyboardEvent } from "react";
 
 type Props = {
   onSubmit: (file: File, heightCm: number) => void;
@@ -34,6 +34,17 @@ export default function UploadForm({ onSubmit, loading, status, error, hasAvatar
     if (f) acceptFile(f);
   }
 
+  // The upload areas wrap the (display:none) file input, which can't sit
+  // inside a <button>, so they stay divs with role="button" and need the
+  // Enter/Space activation a real button would give them for free.
+  function openPickerOnKey(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      inputRef.current?.click();
+    }
+  }
+
   async function loadSample(path: string) {
     const res = await fetch(path);
     const blob = await res.blob();
@@ -61,12 +72,14 @@ export default function UploadForm({ onSubmit, loading, status, error, hasAvatar
               { src: "/samples/sample-female.jpg", label: "Female" },
               { src: "/samples/sample-male.jpg", label: "Male" },
             ].map(({ src, label }) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <div
+              <button
                 key={src}
+                type="button"
                 onClick={() => loadSample(src)}
-                className="relative aspect-[3/4] rounded-[10px] overflow-hidden bg-[#f0eee9] border border-black/[0.06] cursor-pointer hover:border-black/30 transition-colors"
+                aria-label={`Use the ${label.toLowerCase()} sample photo`}
+                className="relative aspect-[3/4] rounded-[10px] overflow-hidden bg-[#f0eee9] border border-black/[0.06] cursor-pointer hover:border-black/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/40 focus-visible:ring-offset-2"
               >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={src}
                   alt={label}
@@ -75,7 +88,7 @@ export default function UploadForm({ onSubmit, loading, status, error, hasAvatar
                 <span className="absolute top-2 left-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-white/85 text-black/70 backdrop-blur-sm">
                   {label}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -84,8 +97,12 @@ export default function UploadForm({ onSubmit, loading, status, error, hasAvatar
       {/* Upload area — compact row after avatar generated, full drop zone before */}
       {hasAvatar ? (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Change photo"
           onClick={() => inputRef.current?.click()}
-          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-black/[0.08] bg-[#fafaf8] cursor-pointer hover:border-black/20 transition-colors"
+          onKeyDown={openPickerOnKey}
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-black/[0.08] bg-[#fafaf8] cursor-pointer hover:border-black/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/40 focus-visible:ring-offset-2"
         >
           {preview && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -101,8 +118,12 @@ export default function UploadForm({ onSubmit, loading, status, error, hasAvatar
         <div
           className={`relative flex flex-col items-center justify-center rounded-xl border-[1.5px] border-dashed transition-colors cursor-pointer text-center
             ${dragging ? "border-black/40 bg-black/[0.03]" : "border-black/[0.18] hover:border-black/30 bg-[#fafaf8]"}
-            ${preview ? "h-44" : "py-5 px-5"}`}
+            ${preview ? "h-44" : "py-5 px-5"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/40 focus-visible:ring-offset-2`}
+          role="button"
+          tabIndex={0}
+          aria-label={preview ? "Change photo" : "Upload a photo"}
           onClick={() => inputRef.current?.click()}
+          onKeyDown={openPickerOnKey}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
