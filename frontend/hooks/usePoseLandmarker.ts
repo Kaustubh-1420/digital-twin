@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback } from "react";
 import { LandmarksFilter } from "@/lib/oneEuroFilter";
 
 // Pinned to the installed package version
@@ -24,6 +24,7 @@ export type HandLandmarks = Landmark[];
 
 export function usePoseLandmarker() {
   const [ready, setReady] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [active, setActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,57 +47,72 @@ export function usePoseLandmarker() {
   const leftHandFilterRef  = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
   const rightHandFilterRef = useRef<LandmarksFilter>(new LandmarksFilter(1.0, 0.3));
 
-  // Load the model once on mount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { FilesetResolver, PoseLandmarker, HandLandmarker, FaceLandmarker } = await import(
-          "@mediapipe/tasks-vision"
-        );
-        const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
-        const [lm, hlm, flm] = await Promise.all([
-          PoseLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: POSE_MODEL_URL },
-            runningMode: "VIDEO",
-            numPoses: 1,
-            outputSegmentationMasks: false,
-          }),
-          HandLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: HAND_MODEL_URL },
-            runningMode: "VIDEO",
-            numHands: 2,
-          }),
-          FaceLandmarker.createFromOptions(vision, {
-            baseOptions: { modelAssetPath: FACE_MODEL_URL },
-            runningMode: "VIDEO",
-            numFaces: 1,
-            outputFaceBlendshapes: true,
-          }),
-        ]);
-        if (!cancelled) {
-          landmarkerRef.current     = lm;
-          handLandmarkerRef.current = hlm;
-          faceLandmarkerRef.current = flm;
-          setReady(true);
-          console.log("[MediaPipe] pose + hand + face models ready");
-        }
-      } catch (e) {
-        if (!cancelled)
-          setError(e instanceof Error ? e.message : "MediaPipe load failed");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  // Models load on first webcam start, not on mount: ~10 MB of wasm + model
+  // files that photo-only visitors would otherwise download for nothing.
+  // One shared promise, so concurrent calls never start a second load.
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
+
+  const ensureLoaded = useCallback((): Promise<void> => {
+    if (loadPromiseRef.current) return loadPromiseRef.current;
+    loadPromiseRef.current = (async () => {
+      const { FilesetResolver, PoseLandmarker, HandLandmarker, FaceLandmarker } = await import(
+        "@mediapipe/tasks-vision"
+      );
+      const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+      // Each task instantiates its own wasm runtime and fetches the binary
+      // itself. Creating Pose first lets that one request finish and land in
+      // the HTTP cache, so Hand + Face compile from cache instead of three
+      // parallel downloads of the same file.
+      const lm = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: POSE_MODEL_URL },
+        runningMode: "VIDEO",
+        numPoses: 1,
+        outputSegmentationMasks: false,
+      });
+      const [hlm, flm] = await Promise.all([
+        HandLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: HAND_MODEL_URL },
+          runningMode: "VIDEO",
+          numHands: 2,
+        }),
+        FaceLandmarker.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: FACE_MODEL_URL },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          outputFaceBlendshapes: true,
+        }),
+      ]);
+      landmarkerRef.current     = lm;
+      handLandmarkerRef.current = hlm;
+      faceLandmarkerRef.current = flm;
+      setReady(true);
+      console.log("[MediaPipe] pose + hand + face models ready");
+    })().catch((e) => {
+      loadPromiseRef.current = null; // allow a retry on the next click
+      throw e;
+    });
+    return loadPromiseRef.current;
   }, []);
 
   const start = useCallback(async () => {
-    if (!landmarkerRef.current) return;
+    setError(null);
+    if (!landmarkerRef.current) setLoading(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // Ask for the camera and load the models at the same time, so the
+      // download runs while the user is still answering the permission prompt.
+      const streamPromise = navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
       });
+      let stream: MediaStream;
+      try {
+        [stream] = await Promise.all([streamPromise, ensureLoaded()]);
+      } catch (e) {
+        // Release the camera if it was granted but the models failed.
+        streamPromise.then((st) => st.getTracks().forEach((t) => t.stop())).catch(() => {});
+        throw e;
+      } finally {
+        setLoading(false);
+      }
       const video = document.createElement("video");
       video.srcObject = stream;
       video.playsInline = true;
@@ -160,7 +176,7 @@ export function usePoseLandmarker() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Webcam access denied");
     }
-  }, []);
+  }, [ensureLoaded]);
 
   const stop = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -181,5 +197,5 @@ export function usePoseLandmarker() {
     setActive(false);
   }, []);
 
-  return { ready, active, error, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, videoRef, start, stop };
+  return { ready, loading, active, error, landmarksRef, normLandmarksRef, leftHandRef, rightHandRef, faceBlendshapesRef, videoRef, start, stop };
 }

@@ -35,8 +35,11 @@ export async function POST(request: NextRequest) {
       measurements: measurementsText,
     });
   } catch (e) {
+    // An exception here is infrastructure (connect failed, Space restarting,
+    // GPU allocation), unlike the "no avatar" 502 above, which is the app's
+    // own answer for this photo. Only this kind is worth retrying.
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Pipeline failed." },
+      { error: e instanceof Error ? e.message : "Pipeline failed.", retryable: true },
       { status: 502 }
     );
   }

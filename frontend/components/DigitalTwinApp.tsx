@@ -6,11 +6,20 @@ import UploadForm from "./UploadForm";
 import AvatarViewer from "./AvatarViewer";
 import MeasurementsPanel from "./MeasurementsPanel";
 import PoseOverlay from "./PoseOverlay";
-import { runPipeline } from "@/lib/api";
+import { runPipeline, GlbDownloadError } from "@/lib/api";
 import { usePoseLandmarker } from "@/hooks/usePoseLandmarker";
+import { useServerHealth, type ServerHealth } from "@/hooks/useServerHealth";
 import { resetSkeletonDriverState } from "@/lib/poseSolver";
 
 type Status = "idle" | "loading" | "done" | "error";
+
+const HEALTH_UI: Record<ServerHealth, { label: string; color: string; pulse?: boolean }> = {
+  checking: { label: "Checking server…", color: "#b5b3ad" },
+  ready:    { label: "Server ready", color: "#7ea478" },
+  waking:   { label: "Waking server (can take a few minutes)", color: "#d9a441", pulse: true },
+  down:     { label: "Server unavailable", color: "#c96a5a" },
+  unknown:  { label: "Server status unknown", color: "#b5b3ad" },
+};
 
 export default function DigitalTwinApp() {
   const [status, setStatus] = useState<Status>("idle");
@@ -18,12 +27,14 @@ export default function DigitalTwinApp() {
   const [error, setError] = useState<string | null>(null);
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [measurements, setMeasurements] = useState<string | null>(null);
+  const [glbOnlyFailure, setGlbOnlyFailure] = useState(false);
 
   const {
-    ready: mpReady, active: webcamActive, error: mpError,
+    loading: mpLoading, active: webcamActive, error: mpError,
     landmarksRef, normLandmarksRef, leftHandRef, rightHandRef,
     faceBlendshapesRef, videoRef, start: startWebcam, stop: stopWebcam,
   } = usePoseLandmarker();
+  const { health, markReady } = useServerHealth();
 
   const [mirrorMode, setMirrorMode] = useState(false);
   const mirrorRef = useRef(false);
@@ -50,23 +61,26 @@ export default function DigitalTwinApp() {
     setError(null);
     try {
       setStatusText("Running body estimation (30–60 s on cold GPU)…");
-      const result = await runPipeline(file, heightCm);
+      const result = await runPipeline(file, heightCm, setStatusText);
       setGlbUrl((prev) => {
         releaseGlbUrl(prev);
         return result.glbUrl;
       });
       setMeasurements(result.measurements);
       setStatus("done");
+      markReady();
     } catch (e) {
-      // Drop any previous avatar and its measurements. Showing either one
-      // after a failure is what made a failed run look like a successful
-      // one — measurements from the real photo beside a body that is not
-      // the generated one.
+      // Always drop the previous avatar: showing it after a failure is what
+      // made a failed run look like a successful one. Measurements survive
+      // only when body estimation itself succeeded and just the 3D download
+      // failed — they come from this photo, and the stage overlay says the
+      // model is missing.
       setGlbUrl((prev) => {
         releaseGlbUrl(prev);
         return null;
       });
-      setMeasurements(null);
+      setMeasurements(e instanceof GlbDownloadError ? e.measurements : null);
+      setGlbOnlyFailure(e instanceof GlbDownloadError);
       setError(e instanceof Error ? e.message : "Unknown error");
       setStatus("error");
     }
@@ -76,9 +90,9 @@ export default function DigitalTwinApp() {
   const hasAvatar = !!glbUrl;
 
   return (
-    <div className="flex flex-col h-full bg-[#fafaf8] text-[#0c0c0a]">
+    <div className="flex flex-col min-h-full md:h-full bg-[#fafaf8] text-[#0c0c0a]">
       {/* Topbar */}
-      <header className="flex items-center justify-between px-6 h-14 border-b border-black/[0.07] bg-white shrink-0">
+      <header className="flex items-center justify-between gap-2 px-4 md:px-6 h-14 border-b border-black/[0.07] bg-white shrink-0">
         <div className="flex items-center gap-2.5">
           <div
             className="w-[22px] h-[22px] rounded-[7px]"
@@ -88,37 +102,40 @@ export default function DigitalTwinApp() {
             }}
           />
           <span className="font-semibold text-sm tracking-tight">digital-twin</span>
-          <span className="text-black/50 text-sm">· studio</span>
+          <span className="hidden sm:inline text-black/50 text-sm">· studio</span>
         </div>
         <nav className="flex gap-1">
-          <Link href="/" className="px-3.5 py-1.5 text-xs font-medium rounded-md bg-[#f0eee9] text-[#0c0c0a]">
+          <Link href="/" className="px-2.5 md:px-3.5 py-1.5 text-xs font-medium rounded-md bg-[#f0eee9] text-[#0c0c0a]">
             Studio
           </Link>
-          <Link href="/method" className="px-3.5 py-1.5 text-xs font-medium rounded-md text-black/50 hover:text-black/80 transition-colors">
+          <Link href="/method" className="px-2.5 md:px-3.5 py-1.5 text-xs font-medium rounded-md text-black/50 hover:text-black/80 transition-colors">
             Method
           </Link>
           <a
             href="https://github.com/Kaustubh-1420/digital-twin"
             target="_blank"
             rel="noopener noreferrer"
-            className="px-3.5 py-1.5 text-xs font-medium rounded-md text-black/50 hover:text-black/80 transition-colors"
+            className="px-2.5 md:px-3.5 py-1.5 text-xs font-medium rounded-md text-black/50 hover:text-black/80 transition-colors"
           >
             GitHub ↗
           </a>
         </nav>
-        <div className="flex items-center gap-1.5 text-xs text-black/55">
+        <div className="flex items-center gap-1.5 text-xs text-black/55 shrink-0">
           <span
-            className="w-[7px] h-[7px] rounded-full bg-[#7ea478]"
-            style={{ boxShadow: "0 0 0 3px rgba(126,164,120,0.18)" }}
+            className={`w-[7px] h-[7px] rounded-full shrink-0 ${HEALTH_UI[health].pulse ? "animate-pulse" : ""}`}
+            style={{
+              backgroundColor: HEALTH_UI[health].color,
+              boxShadow: `0 0 0 3px ${HEALTH_UI[health].color}2e`,
+            }}
           />
-          Server ready
+          <span role="status" className="sr-only md:not-sr-only">{HEALTH_UI[health].label}</span>
         </div>
       </header>
 
       {/* Main 3-column body */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-col md:flex-row flex-1 md:min-h-0">
         {/* LEFT — controls */}
-        <aside className="w-[340px] shrink-0 flex flex-col gap-3 p-4 border-r border-black/[0.07] bg-white overflow-y-auto">
+        <aside className="w-full md:w-[340px] shrink-0 flex flex-col gap-3 p-4 border-b md:border-b-0 md:border-r border-black/[0.07] bg-white md:overflow-y-auto">
           <div>
             <h1 className="font-serif font-normal text-[22px] leading-[1.15] tracking-tight">
               Your body,<br />in real time.
@@ -126,6 +143,7 @@ export default function DigitalTwinApp() {
             <p className="text-xs text-black/60 mt-1.5 leading-relaxed">
               One photo. Six measurements. A skinned avatar that mirrors you live through your webcam.
             </p>
+            <p className="md:hidden text-[11px] text-black/45 mt-1.5">Best experienced on desktop.</p>
           </div>
 
           {/* pipeline pills */}
@@ -165,11 +183,11 @@ export default function DigitalTwinApp() {
 
               <button
                 onClick={webcamActive ? handleStopWebcam : startWebcam}
-                disabled={!mpReady}
+                disabled={mpLoading}
                 className="w-full py-2.5 rounded-lg font-medium text-sm transition-colors
                   bg-[#0c0c0a] hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed text-[#fafaf8]"
               >
-                {!mpReady ? "Loading pose model…" : webcamActive ? "⏹ Stop webcam" : "▶ Start webcam mirror"}
+                {mpLoading ? "Loading pose models (first time only)…" : webcamActive ? "⏹ Stop webcam" : "▶ Start webcam mirror"}
               </button>
 
               <button
@@ -186,7 +204,7 @@ export default function DigitalTwinApp() {
         </aside>
 
         {/* CENTER — viewer stage */}
-        <main className="flex-1 min-w-0 min-h-0 relative dt-stage">
+        <main className="order-first md:order-none h-[60vh] min-h-[360px] shrink-0 md:h-auto md:min-h-0 md:shrink md:flex-1 min-w-0 relative dt-stage">
           {/* stage label */}
           <div className="absolute top-5 left-6 z-10 pointer-events-none">
             <div className="font-serif italic text-sm text-black/55">Studio · Plate 01</div>
@@ -220,14 +238,15 @@ export default function DigitalTwinApp() {
               <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-[#fafaf8]/95 backdrop-blur-sm">
                 <div className="max-w-[300px] text-center px-6">
                   <div className="font-serif italic text-sm text-black/55 mb-2">
-                    No avatar generated
+                    {glbOnlyFailure ? "3D model couldn't be loaded" : "No avatar generated"}
                   </div>
                   <p className="text-xs text-black/60 leading-relaxed">
                     {error}
                   </p>
                   <p className="text-[11px] text-black/40 leading-relaxed mt-3">
-                    The figure shown before this is a sample model, not your
-                    result.
+                    {glbOnlyFailure
+                      ? "Your measurements were estimated and are shown in the panel. Only the 3D view is missing."
+                      : "The figure shown before this is a sample model, not your result."}
                   </p>
                 </div>
               </div>
@@ -236,7 +255,7 @@ export default function DigitalTwinApp() {
         </main>
 
         {/* RIGHT — measurements */}
-        <aside className="w-[280px] shrink-0 flex flex-col gap-5 p-6 border-l border-black/[0.07] bg-white overflow-y-auto">
+        <aside className="w-full md:w-[280px] shrink-0 flex flex-col gap-5 p-6 border-t md:border-t-0 md:border-l border-black/[0.07] bg-white md:overflow-y-auto">
           <MeasurementsPanel text={measurements} />
         </aside>
       </div>
