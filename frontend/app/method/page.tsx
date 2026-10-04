@@ -116,7 +116,7 @@ export default function MethodPage() {
 
         <div className="mt-12 pt-8 border-t border-black/[0.06] flex items-center justify-between">
           <p className="text-[12px] text-black/40">
-            Backend on HF Spaces ZeroGPU · Frontend on Vercel · All inference client-side or serverless
+            Body estimation on HF Spaces ZeroGPU · Frontend on Vercel · Pose tracking runs in your browser
           </p>
           <Link href="/" className="text-[12px] text-black/50 hover:text-black/80 transition-colors">
             ← Back to studio
