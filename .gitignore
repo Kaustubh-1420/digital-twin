@@ -36,6 +36,8 @@ Thumbs.db
 .vscode/
 WORKLOG.md
 HAND_DEBUG.md
+CLAUDE.md
+UPSTREAM.md
 
 # shape-eval stress photos (Unsplash, re-fetch via tools/shape_eval/fetch_stress.sh) and outputs
 tools/shape_eval/stress/
