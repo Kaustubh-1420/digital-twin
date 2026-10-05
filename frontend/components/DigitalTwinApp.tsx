@@ -204,12 +204,12 @@ export default function DigitalTwinApp() {
         </aside>
 
         {/* CENTER — viewer stage */}
-        <main className="order-first md:order-none h-[60vh] min-h-[360px] shrink-0 md:h-auto md:min-h-0 md:shrink md:flex-1 min-w-0 relative dt-stage">
+        <main className="order-first md:order-none h-[60vh] min-h-[360px] shrink-0 md:h-auto md:min-h-0 md:shrink md:flex-1 min-w-0 relative dt-stage @container">
           {/* stage label */}
           <div className="absolute top-5 left-6 z-10 pointer-events-none">
             <div className="font-serif italic text-sm text-black/55">Studio · Plate 01</div>
           </div>
-          <div className="absolute top-5 right-6 z-10 pointer-events-none font-mono text-[10px] text-black/50 text-right leading-relaxed tracking-wider">
+          <div className="hidden @sm:block absolute top-5 right-6 z-10 pointer-events-none font-mono text-[10px] text-black/50 text-right leading-relaxed tracking-wider">
             10,475 verts · 55 joints<br />100 morph targets
           </div>
 
