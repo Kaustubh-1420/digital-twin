@@ -91,7 +91,7 @@ def _fmt_measurements(m: dict) -> str:
 
 # ── core pipeline ─────────────────────────────────────────────────────────────
 
-@spaces.GPU(duration=120)
+@spaces.GPU(duration=30)
 def run_pipeline(image_path: str, height_cm: float):
     """
     image_path: path written by Gradio Image component (filepath mode)
