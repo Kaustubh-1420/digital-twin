@@ -6,6 +6,7 @@ Deployed on HF Spaces ZeroGPU.
 import os
 import sys
 import subprocess
+import time
 
 # Must be set before any torch/CUDA import on ZeroGPU
 os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
@@ -97,6 +98,7 @@ def run_pipeline(image_path: str, height_cm: float):
     height_cm:  user height in centimetres
     Returns: (glb_path, measurements_text, status_text)
     """
+    t0 = time.perf_counter()
     if image_path is None:
         return None, '', 'Please upload a photo.'
 
@@ -142,6 +144,7 @@ def run_pipeline(image_path: str, height_cm: float):
     lbs_weights = smplx_model.lbs_weights.detach().numpy()
     glb_path = export_skinned_glb(vertices, faces, joints, lbs_weights, morph_deltas)
 
+    print(f'run_pipeline: {time.perf_counter() - t0:.1f}s')
     return glb_path, meas_text, '✓ Done'
 
 
@@ -195,6 +198,9 @@ with gr.Blocks(title='digital-twin') as demo:
 
 
 if __name__ == '__main__':
+    print(f'Python {sys.version.split()[0]}, torch {torch.__version__}, '
+          f'CUDA build {torch.version.cuda}, cuda available {torch.cuda.is_available()}, '
+          f'ZeroGPU {HAS_ZEROGPU}')
     try:
         print('Pre-loading PyMAF-X...')
         pymafx_load()

@@ -1,9 +1,9 @@
 # HF Spaces dependencies for digital-twin
 # PyMAF-X is cloned at startup via setup.sh
 
-# Core ML
-torch
-torchvision
+# Core ML (versions from the ZeroGPU supported list)
+torch==2.9.1
+torchvision==0.24.1
 einops
 timm
 yacs
