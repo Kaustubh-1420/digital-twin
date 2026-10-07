@@ -19,6 +19,30 @@ Baseline to beat — PyMAF-X, final stage:
 | heavy_m vs muscle_m2 | 0.13 |
 | max over all 8 photos | 0.71 (random adults ≈ 4.5) |
 
+## Results: NLF (2026-10-07) — PASS
+
+NLF-L v0.3.2 (`nlf_l_multi_0.3.2.torchscript`, `model_name='smplx'`), run on a
+Colab T4 via `nlf_colab.ipynb` (`nlf_eval.py`). Default `beta_regularizer=10`:
+
+| pair | NLF | PyMAF-X |
+|---|---|---|
+| thin_m vs thin_m2 (same person) | 0.258 | 0.245 |
+| heavy_m vs thin_m | 4.355 | 0.399 |
+| heavy_m vs muscle_m2 | 2.328 | 0.133 |
+| max over all 8 photos | 5.09 | 0.71 |
+| photo with no person | none detected | body returned |
+
+Heavy vs thin is 17× the same-person gap (PyMAF-X: 1.6×). Only β0 and β1 are
+non-zero at the default. Sweep: `beta_regularizer` 1 is near-identical, 0.1
+slightly noisier (same person 0.295), 0 breaks down (same person 1.874, mean
+|β| 4.4). So NLF reliably pins about two shape directions (size, weight); finer
+proportions would have to come from a fit to silhouette/keypoints.
+
+The multi-person TorchScript can't run on CPU (its YOLO detector hardcodes
+`cuda:0`). Load it with `torch.jit.load(path, map_location='cuda')`: `.to('cuda')`
+misses tensors held in dict attributes, and under ZeroGPU the load has to happen
+inside `@spaces.GPU`.
+
 ## Usage
 
 ```bash
