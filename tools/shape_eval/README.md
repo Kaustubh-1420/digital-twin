@@ -36,5 +36,8 @@ running inference: with zero pose the mesh is `s·(T + S·β) + t`, linear in
 `(s, sβ, t)`. Fit on non-hand vertices — the `smplx` default mean hand pose is
 not linear and leaves a ~7.5 mm residual on the full mesh.
 
-Local env notes: Python 3.11 `.venv`; `mediapipe==0.10.21` (1.x aborts on
-macOS initialising Metal, even with the CPU delegate).
+Local env notes: Python 3.12.12 `.venv` via uv, matching the Space (ZeroGPU:
+Python 3.12, torch 2.9.1). Install `requirements.txt` with overrides
+`mediapipe==0.10.21` (1.x aborts on macOS initialising Metal, even with the
+CPU delegate) and `gradio==6.13.0` (the Space's `sdk_version`). β output is
+identical to the old 3.11 / torch 2.14 env on all 8 photos.
