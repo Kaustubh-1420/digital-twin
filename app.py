@@ -168,21 +168,24 @@ def _load_nlf():
             urllib.request.urlretrieve(NLF_URL, NLF_PATH + '.part')
             os.replace(NLF_PATH + '.part', NLF_PATH)
         import torchvision  # noqa: F401  (registers ops the TorchScript model needs)
-        model = torch.jit.load(NLF_PATH, map_location='cpu').eval()
-        # Outside @spaces.GPU, as a startup-time .to('cuda') would be
-        _nlf = model.to('cuda') if torch.cuda.is_available() or HAS_ZEROGPU else model
+        # Stays on CPU: ZeroGPU does not intercept .to('cuda') on this
+        # TorchScript module's buffers outside @spaces.GPU (CUDA init error).
+        _nlf = torch.jit.load(NLF_PATH, map_location='cpu').eval()
     return _nlf
 
 
 @spaces.GPU(duration=60)
 def _nlf_run(paths):
     from torchvision.io import ImageReadMode, decode_image, read_file
-    out = []
+    t = time.time()
+    model = _nlf.to('cuda')
+    torch.cuda.synchronize()
+    out = [{'to_cuda_seconds': round(time.time() - t, 2)}]
     for p in paths:
         img = decode_image(read_file(p), mode=ImageReadMode.RGB).cuda()
         t = time.time()
         with torch.inference_mode():
-            pred = _nlf.detect_smpl_batched(img[None], model_name='smplx')
+            pred = model.detect_smpl_batched(img[None], model_name='smplx')
         torch.cuda.synchronize()
         betas = pred['betas'][0].cpu()
         out.append({
