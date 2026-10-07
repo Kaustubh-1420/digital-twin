@@ -187,7 +187,8 @@ def _nlf_run(paths):
         out.append({
             'file': os.path.basename(p),
             'seconds': round(time.time() - t, 2),
-            'boxes': pred['boxes'][0].cpu().round(decimals=3).tolist(),
+            'people': int(betas.shape[0]) if betas.ndim == 2 else 0,
+            'shapes': {k: list(v[0].shape) for k, v in pred.items()},
             'nbetas': int(betas.shape[-1]) if betas.numel() else 0,
             'betas10': betas[:, :10].round(decimals=3).tolist(),
         })
