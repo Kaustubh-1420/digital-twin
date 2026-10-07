@@ -150,6 +150,67 @@ def run_pipeline(image_path: str, height_cm: float):
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
+# ── NLF probe (temporary: does NLF run under ZeroGPU?) ────────────────────────
+# The multi-person TorchScript hardcodes cuda:0 in its YOLO detector, so it
+# can't run on CPU. Lazy download so the live Space's startup is unchanged.
+
+NLF_URL = 'https://github.com/isarandi/nlf/releases/download/v0.3.2/nlf_l_multi_0.3.2.torchscript'
+NLF_PATH = '/tmp/nlf/nlf_l_multi_0.3.2.torchscript'
+_nlf = None
+
+
+def _load_nlf():
+    global _nlf
+    if _nlf is None:
+        if not os.path.exists(NLF_PATH):
+            import urllib.request
+            os.makedirs(os.path.dirname(NLF_PATH), exist_ok=True)
+            urllib.request.urlretrieve(NLF_URL, NLF_PATH + '.part')
+            os.replace(NLF_PATH + '.part', NLF_PATH)
+        import torchvision  # noqa: F401  (registers ops the TorchScript model needs)
+        model = torch.jit.load(NLF_PATH, map_location='cpu').eval()
+        # Outside @spaces.GPU, as a startup-time .to('cuda') would be
+        _nlf = model.to('cuda') if torch.cuda.is_available() or HAS_ZEROGPU else model
+    return _nlf
+
+
+@spaces.GPU(duration=60)
+def _nlf_run(paths):
+    from torchvision.io import ImageReadMode, decode_image, read_file
+    out = []
+    for p in paths:
+        img = decode_image(read_file(p), mode=ImageReadMode.RGB).cuda()
+        t = time.time()
+        with torch.inference_mode():
+            pred = _nlf.detect_smpl_batched(img[None], model_name='smplx')
+        torch.cuda.synchronize()
+        betas = pred['betas'][0].cpu()
+        out.append({
+            'file': os.path.basename(p),
+            'seconds': round(time.time() - t, 2),
+            'boxes': pred['boxes'][0].cpu().round(decimals=3).tolist(),
+            'nbetas': int(betas.shape[-1]) if betas.numel() else 0,
+            'betas10': betas[:, :10].round(decimals=3).tolist(),
+        })
+    return out
+
+
+def nlf_probe(files):
+    import traceback
+    info = {'torch': torch.__version__, 'zerogpu': HAS_ZEROGPU}
+    try:
+        t = time.time()
+        _load_nlf()
+        info['load_seconds'] = round(time.time() - t, 1)
+        t = time.time()
+        info['results'] = _nlf_run(list(files or []))
+        info['gpu_call_seconds'] = round(time.time() - t, 1)
+    except Exception:
+        info['error'] = traceback.format_exc()[-3000:]
+    print('[nlf_probe]', {k: v for k, v in info.items() if k != 'results'})
+    return info
+
+
 CSS = """
 #title { text-align: center; }
 #meas  { font-family: monospace; font-size: 14px; white-space: pre; }
@@ -189,6 +250,13 @@ with gr.Blocks(title='digital-twin') as demo:
         inputs=[img_input, height_slider],
         outputs=[model3d, meas_box, status_box],
     )
+
+    # Temporary NLF probe (API-only). Registered after run_pipeline so that
+    # keeps fn_index 0, which the frontend calls.
+    probe_files = gr.File(file_count='multiple', type='filepath', visible=False)
+    probe_out = gr.JSON(visible=False)
+    probe_btn = gr.Button(visible=False)
+    probe_btn.click(fn=nlf_probe, inputs=[probe_files], outputs=[probe_out], api_name='nlf_probe')
 
     gr.Markdown(
         '**Note:** measurements are estimates from a single photo. '
