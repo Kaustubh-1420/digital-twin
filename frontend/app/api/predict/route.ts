@@ -41,8 +41,9 @@ export async function POST(request: NextRequest) {
     // An exception here is infrastructure (connect failed, Space restarting,
     // GPU allocation), unlike the "no avatar" 502 above, which is the app's
     // own answer for this photo. Only this kind is worth retrying.
-    // @gradio/client rejects with a plain status object, not an Error, so read
-    // its message too; otherwise the real reason (e.g. GPU quota) is lost.
+    // @gradio/client >= 2.7 rejects with an Error; older versions rejected with
+    // a plain status object, so read its message too rather than lose the real
+    // reason (e.g. GPU quota).
     const message =
       e instanceof Error
         ? e.message

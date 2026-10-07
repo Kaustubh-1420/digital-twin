@@ -9,7 +9,7 @@
     "test": "tsc lib/api.ts --outDir .test-build --module commonjs --target es2020 --skipLibCheck --lib es2020,dom && node tests/api.test.js"
   },
   "dependencies": {
-    "@gradio/client": "^2.2.0",
+    "@gradio/client": "^2.7.1",
     "@mediapipe/tasks-vision": "^0.10.34",
     "@pixiv/three-vrm": "^3.5.2",
     "@react-three/drei": "^10.7.7",

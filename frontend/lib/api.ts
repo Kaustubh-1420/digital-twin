@@ -98,9 +98,9 @@ export async function runPipeline(
   onStatus?: (text: string) => void
 ): Promise<PipelineResult> {
   // Routed through our own /api/predict (server-side) instead of connecting to
-  // the HF Space directly from the browser — @gradio/client hardcodes
-  // `credentials: "include"` on its fetches, which HF Spaces' wildcard CORS
-  // headers reject outright.
+  // the HF Space directly from the browser, so HF_TOKEN never reaches the
+  // client. (Originally forced by CORS: @gradio/client < 2.7 hardcoded
+  // `credentials: "include"`, which HF Spaces' wildcard CORS rejects.)
   const formData = new FormData();
   formData.append("image", imageFile);
   formData.append("heightCm", String(heightCm));
