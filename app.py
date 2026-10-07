@@ -8,23 +8,24 @@ import sys
 import subprocess
 import time
 
-# ── run setup.sh if assets are missing (HF Spaces may not auto-run it) ──────
+# Must be set before any torch/CUDA import on ZeroGPU
+os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
+
+# ── run setup.sh if PyMAF-X not present (HF Spaces may not auto-run it) ──────
 ROOT = os.path.dirname(os.path.abspath(__file__))
-NLF_PATH = '/tmp/nlf/nlf_l_multi_0.3.2.torchscript'
 
 def _run_setup():
-    if not (os.path.exists('/tmp/smplx-models/smplx/SMPLX_NEUTRAL.npz') and os.path.exists(NLF_PATH)):
+    if not os.path.isdir('/tmp/PyMAF-X'):
         setup = os.path.join(ROOT, 'setup.sh')
         print('Running setup.sh...')
         subprocess.run(['bash', setup], check=True)
     else:
-        print('Assets present, skipping setup.')
+        print('PyMAF-X already present, skipping setup.')
 
 _run_setup()
 
 import numpy as np
 import torch
-import torchvision  # noqa: F401  (registers ops the NLF TorchScript model needs)
 import cv2
 import smplx
 import gradio as gr
@@ -32,6 +33,7 @@ import gradio as gr
 # ── path setup ────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.join(ROOT, 'backend'))
 
+from pymafx_backend import infer as pymafx_infer, load_model as pymafx_load
 from scale import scale_to_height
 from measurements import extract_measurements
 from export_glb import export_skinned_glb, compute_expression_morphs
@@ -54,13 +56,6 @@ except ImportError:
         def GPU(fn=None, duration=120):
             return fn if fn else (lambda f: f)
     spaces = _spaces()
-
-
-# NLF's TorchScript otherwise profiles and re-optimises its graph on the first
-# calls in each process (~45 s on the first image; measured on a T4). The Space
-# loads the model per request, so that cost would hit every request.
-# Same outputs; first image ~4 s.
-torch._C._set_graph_executor_optimize(False)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -116,20 +111,9 @@ def run_pipeline(image_path: str, height_cm: float):
     if img_bgr is None:
         return None, '', 'Could not read image — try a JPG or PNG.'
 
-    # 2. NLF → SMPL-X betas. Loaded here with map_location='cuda': ZeroGPU
-    # can't intercept a load-time .to('cuda'), and .to() would miss tensors the
-    # model keeps in plain dict attributes, leaving them on CPU.
-    nlf = torch.jit.load(NLF_PATH, map_location='cuda').eval()
-    img = torch.from_numpy(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).cuda()
-    with torch.inference_mode():
-        pred = nlf.detect_smpl_batched(img[None], model_name='smplx')
-    people = pred['betas'][0]
-    if people.shape[0] == 0:
-        return None, '', 'No person found in the photo. Use a full-body photo of one person.'
-    # Several people: take the largest by 2D joint extent
-    j2d = pred['joints2d'][0]
-    best = int((j2d.amax(1) - j2d.amin(1)).prod(-1).argmax())
-    betas = people[best:best + 1].float().cpu()
+    # 2. PyMAF-X inference → native SMPL-X betas
+    result = pymafx_infer(img_bgr)
+    betas = torch.from_numpy(result['betas']).unsqueeze(0).float()
 
     # 3. T-pose with estimated betas
     smplx_model = _build_smplx()
@@ -165,6 +149,67 @@ def run_pipeline(image_path: str, height_cm: float):
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
+
+# ── NLF probe (temporary: does NLF run under ZeroGPU?) ────────────────────────
+# The multi-person TorchScript hardcodes cuda:0 in its YOLO detector, so it
+# can't run on CPU. Lazy download so the live Space's startup is unchanged.
+
+NLF_URL = 'https://github.com/isarandi/nlf/releases/download/v0.3.2/nlf_l_multi_0.3.2.torchscript'
+NLF_PATH = '/tmp/nlf/nlf_l_multi_0.3.2.torchscript'
+
+
+def _load_nlf():
+    if not os.path.exists(NLF_PATH):
+        import urllib.request
+        os.makedirs(os.path.dirname(NLF_PATH), exist_ok=True)
+        urllib.request.urlretrieve(NLF_URL, NLF_PATH + '.part')
+        os.replace(NLF_PATH + '.part', NLF_PATH)
+
+
+@spaces.GPU(duration=60)
+def _nlf_run(paths):
+    import torchvision  # noqa: F401  (registers ops the TorchScript model needs)
+    from torchvision.io import ImageReadMode, decode_image, read_file
+    # Loaded here with map_location='cuda': ZeroGPU can't intercept a
+    # load-time .to('cuda'), and .to() would miss tensors the model keeps in
+    # plain dict attributes (cano_all), leaving them on CPU.
+    t = time.time()
+    model = torch.jit.load(NLF_PATH, map_location='cuda').eval()
+    torch.cuda.synchronize()
+    out = [{'load_cuda_seconds': round(time.time() - t, 2)}]
+    for p in paths:
+        img = decode_image(read_file(p), mode=ImageReadMode.RGB).cuda()
+        t = time.time()
+        with torch.inference_mode():
+            pred = model.detect_smpl_batched(img[None], model_name='smplx')
+        torch.cuda.synchronize()
+        betas = pred['betas'][0].cpu()
+        out.append({
+            'file': os.path.basename(p),
+            'seconds': round(time.time() - t, 2),
+            'people': int(betas.shape[0]) if betas.ndim == 2 else 0,
+            'shapes': {k: list(v[0].shape) for k, v in pred.items()},
+            'nbetas': int(betas.shape[-1]) if betas.numel() else 0,
+            'betas10': betas[:, :10].round(decimals=3).tolist(),
+        })
+    return out
+
+
+def nlf_probe(files):
+    import traceback
+    info = {'torch': torch.__version__, 'zerogpu': HAS_ZEROGPU}
+    try:
+        t = time.time()
+        _load_nlf()
+        info['load_seconds'] = round(time.time() - t, 1)
+        t = time.time()
+        info['results'] = _nlf_run(list(files or []))
+        info['gpu_call_seconds'] = round(time.time() - t, 1)
+    except Exception:
+        info['error'] = traceback.format_exc()[-3000:]
+    print('[nlf_probe]', {k: v for k, v in info.items() if k != 'results'})
+    return info
+
 
 CSS = """
 #title { text-align: center; }
@@ -206,6 +251,13 @@ with gr.Blocks(title='digital-twin') as demo:
         outputs=[model3d, meas_box, status_box],
     )
 
+    # Temporary NLF probe (API-only). Registered after run_pipeline so that
+    # keeps fn_index 0, which the frontend calls.
+    probe_files = gr.File(file_count='multiple', type='filepath', visible=False)
+    probe_out = gr.JSON(visible=False)
+    probe_btn = gr.Button(visible=False)
+    probe_btn.click(fn=nlf_probe, inputs=[probe_files], outputs=[probe_out], api_name='nlf_probe')
+
     gr.Markdown(
         '**Note:** measurements are estimates from a single photo. '
         'Accuracy improves with a full-body, front-facing photo in fitted clothing. '
@@ -217,4 +269,9 @@ if __name__ == '__main__':
     print(f'Python {sys.version.split()[0]}, torch {torch.__version__}, '
           f'CUDA build {torch.version.cuda}, cuda available {torch.cuda.is_available()}, '
           f'ZeroGPU {HAS_ZEROGPU}')
+    try:
+        print('Pre-loading PyMAF-X...')
+        pymafx_load()
+    except Exception as e:
+        print(f'Pre-load failed (will retry on first request): {e}')
     demo.launch(css=CSS, share=False)

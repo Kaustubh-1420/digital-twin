@@ -55,9 +55,6 @@ bash tools/shape_eval/fetch_stress.sh     # 6 Unsplash stress photos -> stress/ 
 `diag.py` saves the exact 224×224 crop each image is fed as (`stress/out/`),
 and prints keypoint visibility and per-stage betas.
 
-PyMAF-X was removed from the app after the NLF pass. `setup_local.sh` and
-`diag.py` (the PyMAF-X baseline) need the repo at commit `09d592c`.
-
 `fetch_live_glbs.sh` + `solve_betas.py` recover β from production GLBs without
 running inference: with zero pose the mesh is `s·(T + S·β) + t`, linear in
 `(s, sβ, t)`. Fit on non-hand vertices — the `smplx` default mean hand pose is
