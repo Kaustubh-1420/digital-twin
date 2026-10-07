@@ -156,31 +156,27 @@ def run_pipeline(image_path: str, height_cm: float):
 
 NLF_URL = 'https://github.com/isarandi/nlf/releases/download/v0.3.2/nlf_l_multi_0.3.2.torchscript'
 NLF_PATH = '/tmp/nlf/nlf_l_multi_0.3.2.torchscript'
-_nlf = None
 
 
 def _load_nlf():
-    global _nlf
-    if _nlf is None:
-        if not os.path.exists(NLF_PATH):
-            import urllib.request
-            os.makedirs(os.path.dirname(NLF_PATH), exist_ok=True)
-            urllib.request.urlretrieve(NLF_URL, NLF_PATH + '.part')
-            os.replace(NLF_PATH + '.part', NLF_PATH)
-        import torchvision  # noqa: F401  (registers ops the TorchScript model needs)
-        # Stays on CPU: ZeroGPU does not intercept .to('cuda') on this
-        # TorchScript module's buffers outside @spaces.GPU (CUDA init error).
-        _nlf = torch.jit.load(NLF_PATH, map_location='cpu').eval()
-    return _nlf
+    if not os.path.exists(NLF_PATH):
+        import urllib.request
+        os.makedirs(os.path.dirname(NLF_PATH), exist_ok=True)
+        urllib.request.urlretrieve(NLF_URL, NLF_PATH + '.part')
+        os.replace(NLF_PATH + '.part', NLF_PATH)
 
 
 @spaces.GPU(duration=60)
 def _nlf_run(paths):
+    import torchvision  # noqa: F401  (registers ops the TorchScript model needs)
     from torchvision.io import ImageReadMode, decode_image, read_file
+    # Loaded here with map_location='cuda': ZeroGPU can't intercept a
+    # load-time .to('cuda'), and .to() would miss tensors the model keeps in
+    # plain dict attributes (cano_all), leaving them on CPU.
     t = time.time()
-    model = _nlf.to('cuda')
+    model = torch.jit.load(NLF_PATH, map_location='cuda').eval()
     torch.cuda.synchronize()
-    out = [{'to_cuda_seconds': round(time.time() - t, 2)}]
+    out = [{'load_cuda_seconds': round(time.time() - t, 2)}]
     for p in paths:
         img = decode_image(read_file(p), mode=ImageReadMode.RGB).cuda()
         t = time.time()
