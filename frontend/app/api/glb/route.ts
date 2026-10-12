@@ -5,7 +5,7 @@ import { NextRequest } from "next/server";
 // Next.js default cap of 10s was cutting that off mid-flight, which surfaced
 // to the browser as a 503 on the payload path. /api/predict already carries
 // the same allowance for the same reason.
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.searchParams.get("url");
