@@ -62,14 +62,9 @@ except ImportError:
 # worker process doesn't inherit it.
 torch._C._set_graph_executor_optimize(False)
 
-# Try loading NLF once at startup. ZeroGPU emulates CUDA in the main process for
-# nn.Modules; untested for TorchScript, so fall back to loading per call.
-try:
-    NLF_MODEL = torch.jit.load(NLF_PATH, map_location='cuda').eval()
-    print('NLF: loaded at startup')
-except Exception as e:
-    NLF_MODEL = None
-    print(f'NLF: startup load failed ({type(e).__name__}: {e}); loading per call')
+# NLF is loaded per call inside the GPU function. A startup load with
+# map_location='cuda' bypasses ZeroGPU's CUDA emulation, fails with "no
+# CUDA-capable device", and that failed init then breaks every GPU worker.
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -111,11 +106,9 @@ def _estimate_betas(img_rgb: np.ndarray):
     Only this runs on the GPU; everything after it is CPU work."""
     t0 = time.perf_counter()
     torch._C._set_graph_executor_optimize(False)
-    nlf = NLF_MODEL
-    if nlf is None:
-        # map_location='cuda': ZeroGPU can't intercept a load-time .to('cuda'),
-        # and .to() would miss tensors the model keeps in plain dict attributes.
-        nlf = torch.jit.load(NLF_PATH, map_location='cuda').eval()
+    # map_location='cuda': ZeroGPU can't intercept a load-time .to('cuda'),
+    # and .to() would miss tensors the model keeps in plain dict attributes.
+    nlf = torch.jit.load(NLF_PATH, map_location='cuda').eval()
     t_load = time.perf_counter()
     img = torch.from_numpy(img_rgb).permute(2, 0, 1).cuda()
     with torch.inference_mode():
@@ -128,8 +121,7 @@ def _estimate_betas(img_rgb: np.ndarray):
         best = int((j2d.amax(1) - j2d.amin(1)).prod(-1).argmax())
         betas = people[best:best + 1].float().cpu()
     t_end = time.perf_counter()
-    print(f'[timing] gpu: load {t_load - t0:.1f}s ({"startup" if NLF_MODEL is not None else "per call"}), '
-          f'infer {t_end - t_load:.1f}s')
+    print(f'[timing] gpu: load {t_load - t0:.1f}s, infer {t_end - t_load:.1f}s')
     return betas
 
 
