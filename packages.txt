@@ -1,2 +1,0 @@
-libgles2
-libegl1

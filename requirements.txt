@@ -1,18 +1,13 @@
 # HF Spaces dependencies for digital-twin
-# PyMAF-X is cloned at startup via setup.sh
+# NLF weights + SMPL-X model are fetched at startup via setup.sh
 
 # Core ML (versions from the ZeroGPU supported list)
 torch==2.9.1
 torchvision==0.24.1
-einops
-timm
-yacs
 
 # Body model
 smplx
 
-# Keypoint detection
-mediapipe
 certifi
 
 # Image & mesh
@@ -21,12 +16,8 @@ trimesh
 scipy
 scikit-learn
 scikit-image
-numpy
-
-# HMR2 (fallback backend, installs PyMAF-X deps too)
-# installed via setup.sh
+numpy<2  # tested with 1.26 (was pinned implicitly by mediapipe)
 
 # Misc
-boto3
 gradio
 spaces
