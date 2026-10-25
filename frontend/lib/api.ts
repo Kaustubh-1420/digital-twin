@@ -64,6 +64,9 @@ const PREDICT_RETRY_MS = 2000;
 
 type PredictBody = { glbUrl?: string; measurements?: string; error?: string; retryable?: boolean };
 
+/** `res` is null when the connection dropped before a full response arrived. */
+type PredictAttempt = { res: Response | null; data: PredictBody; parsed: boolean };
+
 /**
  * One /api/predict call. Read as text and parsed defensively: a platform-level
  * failure (function timeout, crash, cold-start error) returns an HTML error
@@ -71,9 +74,18 @@ type PredictBody = { glbUrl?: string; measurements?: string; error?: string; ret
  * checked — which surfaced to the user as `Unexpected token 'A'` instead of
  * something they could act on.
  */
-async function callPredict(formData: FormData) {
-  const res = await fetch("/api/predict", { method: "POST", body: formData });
-  const raw = await res.text();
+async function callPredict(formData: FormData): Promise<PredictAttempt> {
+  let res: Response;
+  let raw: string;
+  try {
+    res = await fetch("/api/predict", { method: "POST", body: formData });
+    raw = await res.text();
+  } catch {
+    // fetch rejects (Safari: "The network connection was lost") when the
+    // connection drops, even after the server finished the job. Seen once in
+    // production with a 200 in Vercel's log; the caller retries it.
+    return { res: null, data: {}, parsed: false };
+  }
   let data: PredictBody = {};
   let parsed = false;
   try {
@@ -85,10 +97,13 @@ async function callPredict(formData: FormData) {
   return { res, data, parsed };
 }
 
-/** Failures that look like a cold or restarting backend rather than an answer
- *  about this photo: gateway errors, the platform's own (non-JSON) error page,
- *  or our route flagging an infrastructure exception. */
-function looksTransient(status: number, data: PredictBody, parsed: boolean) {
+/** Failures that look like a dropped connection or a cold or restarting
+ *  backend rather than an answer about this photo: no response at all, gateway
+ *  errors, the platform's own (non-JSON) error page, or our route flagging an
+ *  infrastructure exception. */
+function looksTransient({ res, data, parsed }: PredictAttempt) {
+  if (!res) return true;
+  const status = res.status;
   return status === 503 || status === 504 || (status >= 500 && !parsed) || data.retryable === true;
 }
 
@@ -105,15 +120,21 @@ export async function runPipeline(
   formData.append("image", imageFile);
   formData.append("heightCm", String(heightCm));
 
-  let { res, data, parsed } = await callPredict(formData);
+  let attempt = await callPredict(formData);
 
-  // A sleeping GPU often fails the first request and serves the second.
-  for (let attempt = 2; attempt <= PREDICT_ATTEMPTS && !res.ok && looksTransient(res.status, data, parsed); attempt++) {
-    onStatus?.("GPU was asleep, retrying…");
+  // A sleeping GPU often fails the first request and serves the second; a
+  // dropped connection usually succeeds on a second try too. Both share the
+  // same budget, so one click never costs more than PREDICT_ATTEMPTS GPU runs.
+  for (let n = 2; n <= PREDICT_ATTEMPTS && !attempt.res?.ok && looksTransient(attempt); n++) {
+    onStatus?.(attempt.res ? "GPU was asleep, retrying…" : "Connection dropped, retrying…");
     await new Promise((r) => setTimeout(r, PREDICT_RETRY_MS));
-    ({ res, data, parsed } = await callPredict(formData));
+    attempt = await callPredict(formData);
   }
 
+  const { res, data } = attempt;
+  if (!res) {
+    throw new Error("Connection lost. Please check your network and try again.");
+  }
   if (!res.ok) {
     throw new Error(
       data.error || `Body estimation failed (HTTP ${res.status}). Please try again.`

@@ -213,6 +213,30 @@ async function test(name, setup, expect) {
     (o, _g, p) => !o.ok && p === 2 && /HTTP 504/.test(o.message)
   );
 
+  console.log("\nPredict retry — dropped connection");
+
+  // Safari rejects fetch with "The network connection was lost" (seen once in
+  // production while Vercel logged a 200 for the same request).
+  const dropped = () => { throw new TypeError("Load failed"); };
+
+  await test(
+    "dropped connection then 200 recovers on the single retry",
+    { predict: (n) => (n === 0 ? dropped() : ok()) },
+    (o, _g, p) => o.ok && p === 2
+  );
+
+  await test(
+    "dropped connection on both attempts fails with a network message",
+    { predict: dropped },
+    (o, _g, p) => !o.ok && p === 2 && /Connection lost/.test(o.message)
+  );
+
+  await test(
+    "504 then dropped connection shares the budget: no third attempt",
+    { predict: (n) => (n === 0 ? new Response("Gateway Timeout", { status: 504 }) : dropped()) },
+    (o, _g, p) => !o.ok && p === 2 && /Connection lost/.test(o.message)
+  );
+
   await test(
     "healthy response resolves with measurements intact",
     {},
