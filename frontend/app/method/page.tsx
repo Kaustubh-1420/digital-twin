@@ -4,8 +4,8 @@ const STAGES = [
   {
     step: "01",
     title: "Single-image body estimation",
-    tech: "PyMAF-X",
-    body: "A single front-facing photo is passed to PyMAF-X, a regression network that fits the SMPL-X parametric body model to 2D image evidence via iterative feature alignment. The output is a 10-dimensional β (shape) vector encoding height, weight distribution, and proportions — independent of pose.",
+    tech: "NLF",
+    body: "A single photo is passed to NLF (Neural Localizer Fields, Sárándi & Pons-Moll, NeurIPS 2024), which detects the person and predicts SMPL-X parameters directly. Only the 10-dimensional β (shape) vector is kept; the photo's pose is discarded. β captures overall size and build: in a stress test, a heavy and a thin person land far apart while two photos of the same person stay close. Finer proportions are approximate.",
   },
   {
     step: "02",

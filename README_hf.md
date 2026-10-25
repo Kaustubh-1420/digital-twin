@@ -15,6 +15,6 @@ license: mit
 
 Upload a photo and your height → get a personalized SMPL-X avatar that mirrors your movements live via webcam.
 
-Body pose, hands (30 joints), jaw, and facial expressions all driven client-side at ~30 fps after a single PyMAF-X fit.
+Body pose, hands (30 joints), jaw, and facial expressions all driven client-side at ~30 fps after a single NLF shape estimate.
 
 **[Live demo](https://digital-twin-ai.vercel.app)** · **[Full docs & source on GitHub](https://github.com/Kaustubh-1420/digital-twin)**

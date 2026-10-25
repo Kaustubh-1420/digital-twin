@@ -2,7 +2,7 @@
 
 **[Live demo](https://digital-twin-ai.vercel.app)** · **[HF Space](https://huggingface.co/spaces/Kaustubh1420/digital-twin)**
 
-Upload a photo and your height. PyMAF-X fits an SMPL-X body model to your proportions, exports a personalized skinned mesh, and streams it to the browser — where it mirrors your movements in real time via webcam.
+Upload a photo and your height. NLF estimates your SMPL-X body shape, which becomes a personalized skinned mesh streamed to the browser, where it mirrors your movements in real time via webcam.
 
 The avatar is fitted to your estimated body shape, not a generic template. Body pose, hands (30 joints), jaw, and facial expressions are all driven client-side at ~30 fps with no server round-trip after the initial fit.
 
@@ -11,9 +11,9 @@ The avatar is fitted to your estimated body shape, not a generic template. Body 
 ## How it works
 
 **Body fitting**
-PyMAF-X runs on the uploaded photo and estimates SMPL-X shape parameters (`betas`). These are passed directly — no SMPLify conversion step. A T-pose mesh is generated from the betas, scaled to the user-provided height, and exported as a skinned GLB with VRM humanoid bone names and LBS weights.
+[NLF](https://github.com/isarandi/nlf) (Neural Localizer Fields, NeurIPS 2024) runs on the uploaded photo on a ZeroGPU Space and predicts SMPL-X parameters; only the shape (`betas`) is kept. A T-pose mesh is generated from the betas, scaled to the user's height, and exported as a skinned GLB with VRM humanoid bone names and LBS weights.
 
-The betas are a monocular estimate from one image. Relative proportions (shoulder-to-hip ratio, limb lengths) are typically well-captured; absolute girth measurements depend on photo quality and pose.
+The betas are a monocular estimate from one image. Overall size and build are captured: a heavy-vs-thin stress test separates clearly, and two photos of the same person stay close. Finer proportions and absolute girths depend on photo quality, pose and clothing. If no person is detected, the app says so instead of returning a body.
 
 **Measurements**
 Six measurements are extracted from the scaled T-pose mesh:
@@ -42,7 +42,7 @@ The forearm twist redistribution splits pronation/supination between the lower a
 
 | Layer | Tech |
 |---|---|
-| Body fitting | PyMAF-X (SMPL-X native betas output) |
+| Body fitting | NLF-L (SMPL-X betas; pose discarded) |
 | Measurements | Plane-slice perimeter + Ramanujan ellipse approx |
 | GLB export | Raw GLTF binary — 55 joints, LBS weights, 100 morph targets |
 | Backend | Gradio on HF Spaces ZeroGPU |
@@ -55,7 +55,7 @@ The forearm twist redistribution splits pronation/supination between the lower a
 
 ## Known limitations
 
-- **Betas from monocular image** — body shape is estimated, not measured. Works best with a clear standing photo in fitted clothing.
+- **Betas from monocular image** — body shape is estimated, not measured. It captures size and build; finer proportions are approximate. Works best with a clear, front-facing standing photo in fitted clothing.
 - **No teeth, tongue, or mouth interior** — SMPL-X models the outer body surface only.
 - **Eyelid blink** — SMPL-X expression PCA does not encode eyelid closure; blink is not visible.
 - **Fist closure** — MediaPipe hallucinates fingertip positions during full fist occlusion. ~50% closure is the practical limit.
@@ -67,11 +67,13 @@ The forearm twist redistribution splits pronation/supination between the lower a
 
 ```bash
 # Backend
-python3.11 -m venv .venv && source .venv/bin/activate
+python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Place SMPL-X models at models/smplx/SMPLX_NEUTRAL.npz
-# Place PyMAF-X checkpoint at /tmp/PyMAF-X/data/pretrained_model/
+# Needs a CUDA GPU (NLF's person detector is GPU-only).
+# On first start app.py runs setup.sh, which fetches the NLF weights (GitHub release)
+# and the SMPL-X model (private HF dataset, needs HF_TOKEN; the model itself is from
+# smpl-x.is.tue.mpg.de, registration required).
 
 python app.py
 
@@ -91,7 +93,6 @@ The frontend expects the Gradio backend at the URL configured in `frontend/lib/a
 backend/
   measurements.py       — 6 anthropometric measurements from T-pose mesh
   scale.py              — height calibration
-  pymafx_backend.py     — PyMAF-X inference wrapper
   export_glb.py         — skinned GLB: 55 joints, VRM bones, 100 expression morph targets
 app.py                  — Gradio app (HF Spaces entry point)
 frontend/
@@ -104,3 +105,10 @@ frontend/
     exprMapping.ts      — 52×100 ARKit→SMPL-X expression matrix
     oneEuroFilter.ts    — One Euro Filter + batch landmark smoother
 ```
+
+---
+
+## Credits
+
+- **NLF**: I. Sárándi, G. Pons-Moll, *Neural Localizer Fields for Continuous 3D Human Pose and Shape Estimation*, NeurIPS 2024 ([code](https://github.com/isarandi/nlf)). Code MIT; model weights for noncommercial research use only. This is a free, non-commercial demo.
+- **SMPL-X**: G. Pavlakos et al., *Expressive Body Capture: 3D Hands, Face, and Body from a Single Image*, CVPR 2019.

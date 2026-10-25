@@ -148,7 +148,7 @@ export default function DigitalTwinApp() {
 
           {/* pipeline pills */}
           <div className="flex flex-wrap gap-1.5">
-            {["PyMAF-X", "SMPL-X", "MediaPipe", "Three.js"].map((p) => (
+            {["NLF", "SMPL-X", "MediaPipe", "Three.js"].map((p) => (
               <span
                 key={p}
                 className="px-2.5 py-1 border border-black/10 rounded-full text-[11px] font-mono text-black/65 bg-[#fafaf8]"
