@@ -43,6 +43,23 @@ The multi-person TorchScript can't run on CPU (its YOLO detector hardcodes
 misses tensors held in dict attributes, and under ZeroGPU the load has to happen
 inside `@spaces.GPU`.
 
+## Live check: production (2026-10-25) — PASS
+
+`live_stress.sh` posts stress photos to the production `/api/predict`
+(Vercel -> HF Space, the site's own path) at a fixed 175 cm. Measurements in cm;
+time is the predict call only (no GLB download), Space warm:
+
+| photo | chest | waist | hip | shoulder | time |
+|---|---|---|---|---|---|
+| heavy_m | 115.1 | 128.4 | 119.7 | 51.0 | 9 s |
+| muscle_m2 | 100.2 | 100.5 | 107.9 | 46.2 | 6 s |
+| thin_m | 86.7 | 76.3 | 97.1 | 42.4 | 7 s |
+| thin_m2 (same man) | 87.5 | 79.2 | 98.6 | 42.8 | 7 s |
+
+Heavy vs thin: waist 52.1, chest 28.4 apart. Same man, two shots: waist 2.9,
+chest 0.8 apart. Waists match the local NLF run at 175 cm exactly, so the
+deployed pipeline is the tested one.
+
 ## Usage
 
 ```bash
