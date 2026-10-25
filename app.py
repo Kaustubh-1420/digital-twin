@@ -104,12 +104,10 @@ def _fmt_measurements(m: dict) -> str:
 def _estimate_betas(img_rgb: np.ndarray):
     """NLF → SMPL-X betas (1, 10) on CPU, or None if no person is found.
     Only this runs on the GPU; everything after it is CPU work."""
-    t0 = time.perf_counter()
     torch._C._set_graph_executor_optimize(False)
     # map_location='cuda': ZeroGPU can't intercept a load-time .to('cuda'),
     # and .to() would miss tensors the model keeps in plain dict attributes.
     nlf = torch.jit.load(NLF_PATH, map_location='cuda').eval()
-    t_load = time.perf_counter()
     img = torch.from_numpy(img_rgb).permute(2, 0, 1).cuda()
     with torch.inference_mode():
         pred = nlf.detect_smpl_batched(img[None], model_name='smplx')
@@ -120,8 +118,6 @@ def _estimate_betas(img_rgb: np.ndarray):
         j2d = pred['joints2d'][0]
         best = int((j2d.amax(1) - j2d.amin(1)).prod(-1).argmax())
         betas = people[best:best + 1].float().cpu()
-    t_end = time.perf_counter()
-    print(f'[timing] gpu: load {t_load - t0:.1f}s, infer {t_end - t_load:.1f}s')
     return betas
 
 
@@ -145,9 +141,7 @@ def run_pipeline(image_path: str, height_cm: float):
         return None, '', 'Could not read image — try a JPG or PNG.'
 
     # 2. NLF → SMPL-X betas (the only GPU step)
-    t_gpu = time.perf_counter()
     betas = _estimate_betas(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB))
-    t_cpu = time.perf_counter()
     if betas is None:
         return None, '', 'No person found in the photo. Use a full-body photo of one person.'
 
@@ -180,9 +174,7 @@ def run_pipeline(image_path: str, height_cm: float):
     lbs_weights = smplx_model.lbs_weights.detach().numpy()
     glb_path = export_skinned_glb(vertices, faces, joints, lbs_weights, morph_deltas)
 
-    t_end = time.perf_counter()
-    print(f'[timing] run_pipeline: gpu call {t_cpu - t_gpu:.1f}s, cpu {t_end - t_cpu:.1f}s, '
-          f'total {t_end - t0:.1f}s')
+    print(f'run_pipeline: {time.perf_counter() - t0:.1f}s')
     return glb_path, meas_text, '✓ Done'
 
 
